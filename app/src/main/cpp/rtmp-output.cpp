@@ -15,8 +15,6 @@
 # include "rtmp-audio-output.h"
 # include "rtmp-video-output.h"
 
-
-#define MAX_RETRY_SEC (15 * 60)
 #define MICROSECOND_DEN 1000000
 
 
@@ -31,11 +29,24 @@ static void interleave_packets(void *data, encoder_packet &packet)
 RtmpOutput::RtmpOutput(std::shared_ptr<media_output> &v, std::shared_ptr<media_output> &a):
 video(v),
 audio(a),
-reconnect_retry_sec(0),
-reconnect_retry_max(0)
+video_offset(0),
+audio_offset(0),
+highest_audio_ts(0),
+highest_video_ts(0),
+stop_code(0),
+total_frames(0),
+scaled_width(0),
+scaled_height(0),
+received_video(false),
+received_audio(false),
+data_active(false),
+end_data_capture_thread_active(false),
+active(false),
+video_conversion_set(false),
+audio_conversion_set(false),
+valid(false),
+stopping_event(NULL)
 {
-	int ret;
-
 	do{
 		pthread_mutex_init_value(&interleaved_mutex);
 
@@ -45,18 +56,9 @@ reconnect_retry_max(0)
 			break;
 
 		os_event_signal(stopping_event);
-
-		ret = os_event_init(&reconnect_stop_event,
-							OS_EVENT_TYPE_MANUAL);
-		if (ret < 0)
-			break;
-
-		reconnect_retry_sec = 2;
-		reconnect_retry_max = 20;
-		valid               = true;
+		valid = true;
 		return;
-	}
-	while(false);
+	}while(false);
 
 	destroy();
 }
@@ -67,7 +69,6 @@ RtmpOutput::~RtmpOutput()
 
     os_event_destroy(stopping_event);
     pthread_mutex_destroy(&interleaved_mutex);
-    os_event_destroy(reconnect_stop_event);
 
     if (!last_error_message.empty())
         last_error_message.clear();
@@ -91,24 +92,18 @@ bool RtmpOutput::begin_data_capture()
 
 	total_frames   = 0;
 
-	convert_flags(flags, &encoded, &has_video, &has_audio);
+	convert_flags(flags, encoded, has_video, has_audio);
 
 	if (!can_begin_data_capture(encoded, has_video, has_audio))
 		return false;
 
 	os_atomic_set_bool(&data_active, true);
-	hook_data_capture(encoded, has_video, has_audio);
+	hook_data_capture(has_video, has_audio);
 
-	do_output_signal("activate");
+	do_output_signal();
 	os_atomic_set_bool(&active, true);
 
-	if (isConnecting()) {
-		do_output_signal("reconnect_success");
-		os_atomic_set_bool(&reconnecting, false);
-
-	} else {
-		do_output_signal("start");
-	}
+	do_output_signal();
 
 	return true;
 }
@@ -136,7 +131,7 @@ bool RtmpOutput::can_begin_data_capture()
 	if (os_atomic_load_bool(&end_data_capture_thread_active))
 		pthread_join(end_data_capture_thread, NULL);
 
-	convert_flags(flags, &encoded, &has_video, &has_audio);
+	convert_flags(flags, encoded, has_video, has_audio);
 
 	return can_begin_data_capture(encoded, has_video, has_audio);
 }
@@ -169,7 +164,7 @@ bool RtmpOutput::initialize_encoders()
 
 	if (is_active()) return false;
 
-	convert_flags( flags, &encoded, &has_video, &has_audio);
+	convert_flags( flags, encoded, has_video, has_audio);
 
 	if (!encoded)
 		return false;
@@ -218,38 +213,29 @@ void  RtmpOutput::end_data_capture_internal(bool signal)
 void RtmpOutput::signal_stop(int code)
 {
 	stop_code = code;
-
-	if (can_reconnect(code)) {
-		end_data_capture_internal( false);
-		output_reconnect();
-	} else {
-		end_data_capture();
-	}
+    end_data_capture();
 }
 
 void RtmpOutput::signal_stop()
 {
-	struct calldata params;
-
+	calldata params;
 	calldata_init(&params);
 	calldata_set_string(&params, "last_error", last_error_message.c_str());
 	calldata_set_int(&params, "code", stop_code);
 	calldata_set_ptr(&params, "output", this);
 
-	//signal_handler_signal(context.signals, "stop", &params);
-
 	calldata_free(&params);
 }
 
-void RtmpOutput::convert_flags(uint32_t flags, bool *encoded, bool *has_video, bool *has_audio)
+void RtmpOutput::convert_flags(uint32_t flags, bool &encoded, bool &has_video, bool &has_audio)
 {
-	*encoded = (flags & OBS_OUTPUT_ENCODED) != 0;
+	encoded = (flags & OBS_OUTPUT_ENCODED) != 0;
 
-	*has_video   = (flags & OBS_OUTPUT_VIDEO)   != 0;
-	*has_audio   = (flags & OBS_OUTPUT_AUDIO)   != 0;
+	has_video   = (flags & OBS_OUTPUT_VIDEO)   != 0;
+	has_audio   = (flags & OBS_OUTPUT_AUDIO)   != 0;
 }
 
-void RtmpOutput::hook_data_capture(bool encoded, bool has_video, bool has_audio)
+void RtmpOutput::hook_data_capture(bool has_video, bool has_audio)
 {
 	pthread_mutex_lock(&interleaved_mutex);
 	reset_packet_data();
@@ -261,7 +247,7 @@ void RtmpOutput::hook_data_capture(bool encoded, bool has_video, bool has_audio)
 		video_encoder.lock()->start(interleave_packets,this);
 }
 
-void RtmpOutput::do_output_signal(const char *signal)
+void RtmpOutput::do_output_signal()
 {
 	calldata params = {0};
 	calldata_set_ptr(&params, "output", this);
@@ -307,66 +293,20 @@ void *RtmpOutput::end_data_capture_thread_fun(void *data)
 	bool encoded, has_video, has_audio;
 	RtmpOutput *output = (RtmpOutput *)data;
 
-	output->convert_flags(0, &encoded, &has_video, &has_audio);
+	output->convert_flags(0, encoded, has_video, has_audio);
 
 	if (has_video)
 		output->video_encoder.lock()->stop(interleave_packets, output);
 	if (has_audio)
 		output->stop_audio_encoders(interleave_packets);
 
-	output->do_output_signal("deactivate");
+	output->do_output_signal();
+	LOGI("end_data_capture_thread_fun--------------------------------------------------!!!!!!!!!!!!!!!!!!!!!!!!!!!! ");
 	os_atomic_set_bool(&output->active, false);
 	os_event_signal(output->stopping_event);
 	os_atomic_set_bool(&output->end_data_capture_thread_active, false);
 
 	return NULL;
-}
-
-bool RtmpOutput::can_reconnect(int code)
-{
-	bool reconnect_active = reconnect_retry_max != 0;
-
-	return (isReconnecting() && code != OBS_OUTPUT_SUCCESS) ||
-		   (reconnect_active && code == OBS_OUTPUT_DISCONNECTED);
-}
-
-void RtmpOutput::output_reconnect()
-{
-	int ret;
-
-	if (!isReconnecting()) {
-		reconnect_retry_cur_sec = reconnect_retry_sec;
-		reconnect_retries = 0;
-	}
-
-	if (reconnect_retries >= reconnect_retry_max) {
-		stop_code = OBS_OUTPUT_DISCONNECTED;
-		os_atomic_set_bool(&reconnecting, false);
-		end_data_capture();
-		return;
-	}
-
-	if (!isReconnecting()) {
-		os_atomic_set_bool(&reconnecting, true);
-		os_event_reset(reconnect_stop_event);
-	}
-
-	if (reconnect_retries) {
-		reconnect_retry_cur_sec *= 2;
-		if (reconnect_retry_cur_sec > MAX_RETRY_SEC)
-			reconnect_retry_cur_sec = MAX_RETRY_SEC;
-	}
-
-	reconnect_retries++;
-
-	stop_code = OBS_OUTPUT_DISCONNECTED;
-	ret = pthread_create(&reconnect_thread, NULL,
-						 &reconnect_thread_fun, this);
-	if (ret < 0) {
-		os_atomic_set_bool(&reconnecting, false);
-	} else {
-		signal_reconnect();
-	}
 }
 
 void RtmpOutput::reset_packet_data()
@@ -419,41 +359,6 @@ struct video_scale_info* RtmpOutput::get_video_conversion()
 	}
 
 	return NULL;
-}
-
-bool RtmpOutput::isReconnecting()
-{
-	return os_atomic_load_bool(&reconnecting);
-}
-
-void * RtmpOutput::reconnect_thread_fun(void *param)
-{
-	struct RtmpOutput *output = (RtmpOutput *)param;
-	unsigned long ms = output->reconnect_retry_cur_sec * 1000;
-
-	output->reconnect_thread_active = true;
-
-	if (os_event_timedwait(output->reconnect_stop_event, ms) == ETIMEDOUT)
-		output->actual_start();
-
-	if (os_event_try(output->reconnect_stop_event) == EAGAIN)
-		pthread_detach(output->reconnect_thread);
-	else
-		os_atomic_set_bool(&output->reconnecting, false);
-
-	output->reconnect_thread_active = false;
-	return NULL;
-}
-
-void RtmpOutput::signal_reconnect()
-{
-	struct calldata params;
-	uint8_t stack[128];
-
-	calldata_init_fixed(&params, stack, sizeof(stack));
-	calldata_set_int(&params, "timeout_sec",reconnect_retry_cur_sec);
-	calldata_set_ptr(&params, "output", this);
-	//signal_handler_signal(context.signals, "reconnect", &params);
 }
 
 uint32_t RtmpOutput::video_get_width()
@@ -515,7 +420,7 @@ bool RtmpOutput::actual_start()
 bool RtmpOutput::output_start()
 {
 	if (actual_start()) {
-		do_output_signal("starting");
+		do_output_signal();
 		return true;
 	}
 	return false;
@@ -524,20 +429,16 @@ bool RtmpOutput::output_start()
 
 bool RtmpOutput::output_active()
 {
-    return (is_active() || isReconnecting());
+    return is_active();
 }
 
 void RtmpOutput::output_stop()
 {
-    if (!is_active() && !isReconnecting())
+    if (!is_active())
         return;
-    if (isReconnecting()) {
-        force_stop();
-        return;
-    }
 
     if (!stopping()) {
-        do_output_signal("stopping");
+        do_output_signal();
         actual_stop(false, os_gettime_ns());
     }
 }
@@ -599,7 +500,7 @@ void RtmpOutput::force_stop()
 {
 	if (!stopping()) {
 		stop_code = 0;
-		do_output_signal("stopping");
+		do_output_signal();
 	}
 	actual_stop(true, 0);
 }
@@ -607,18 +508,10 @@ void RtmpOutput::force_stop()
 void RtmpOutput::actual_stop(bool force, uint64_t ts)
 {
 	bool call_stop = true;
-	bool was_reconnecting = false;
 
 	if (stopping() && !force)
 		return;
 	os_event_reset(stopping_event);
-
-	was_reconnecting = isReconnecting();
-	if (was_reconnecting) {
-		os_event_signal(reconnect_stop_event);
-		if (reconnect_thread_active)
-			pthread_join(reconnect_thread, NULL);
-	}
 
 	if (force)
 		call_stop = true;
@@ -652,8 +545,10 @@ void RtmpOutput::on_interleave_packets(encoder_packet &packet)
 	encoder_packet out;
 	bool was_started;
 
-	if (!is_active())
+	if (!is_active()){
+		LOGI("on_interleave_packets-------------------- is not active");
 		return;
+	}
 
 	if (packet.type == OBS_ENCODER_AUDIO)
 		packet.track_idx = 0;
@@ -665,6 +560,8 @@ void RtmpOutput::on_interleave_packets(encoder_packet &packet)
 		!packet.keyframe) {
 		discard_unused_audio_packets(packet.dts_usec);
 		pthread_mutex_unlock(&interleaved_mutex);
+
+		LOGI("on_interleave_packets-------------------- discard_unused_audio_packets");
 		return;
 	}
 
@@ -679,15 +576,19 @@ void RtmpOutput::on_interleave_packets(encoder_packet &packet)
 
 	insert_interleaved_packet(out);
 	set_higher_ts(out);
-    LOGI("interleave_packets received_audio ： %d ",received_audio);
 	if (received_audio && received_video) {
+		LOGI("on_interleave_packets-------------------- was_started : %d ",was_started);
 		if (!was_started) {
 			if (prune_interleaved_packets()) {
 				if (initialize_interleaved_packets()) {
 					resort_interleaved_packets();
 					send_interleaved();
 				}
+				else
+					LOGI("initialize_interleaved_packets-------------------- failed ");
 			}
+			else
+				LOGI("prune_interleaved_packets-------------------- failed");
 		} else {
 			send_interleaved();
 		}

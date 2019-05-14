@@ -194,6 +194,9 @@ public:
     encoder_packet_info *serialize_to();
     int64_t get_serialize_size();
     void serialize_from(encoder_packet_info &info);
+
+private:
+    bool is_attach_info;
 };
 
 struct encoder_callback {

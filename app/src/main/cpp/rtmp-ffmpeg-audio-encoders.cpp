@@ -156,7 +156,6 @@ aframe(NULL)
     id = "ffmpeg_aac";
     type = OBS_ENCODER_AUDIO;
     samples.resize(MAX_AV_PLANES,0);
-    //codec = "AAC";
 }
 
 aacEncoder::~aacEncoder()
@@ -186,7 +185,7 @@ void aacEncoder::destroy() {
         av_frame_free(&aframe);
 }
 
-bool aacEncoder::encode(struct encoder_frame *frame,
+bool aacEncoder::encode(encoder_frame *frame,
             encoder_packet &packet, bool *received_packet) {
 
     memcpy(samples[0], (void *)&frame->data[0], frame_size_bytes);
@@ -429,7 +428,6 @@ void aacEncoder::send_audio_data()
 
     audio_input_buffer.pop_front(&audio_output_buffer[0], audio_output_buffer.size());
 
-    LOGI("send_audio_data----------------------------------------------------- %d",audio_input_buffer.size);
     enc_frame.data     = audio_output_buffer;
     enc_frame.frames = (uint32_t)framesize;
     enc_frame.pts    = cur_pts;

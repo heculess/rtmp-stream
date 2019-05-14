@@ -105,8 +105,8 @@ bool RtmpPush::StartStreaming(const char *stream_url, const char *stream_name)
         output_stream->set_video_encoder(h264Streaming);
         output_stream->set_audio_encoder(aacStreaming);
 
-        output_stream->reconnect_retry_max = 20;
-        output_stream->reconnect_retry_sec = 10;
+        //output_stream->reconnect_retry_max = 20;
+        //output_stream->reconnect_retry_sec = 10;
         output_stream->path = streamUrl;
         output_stream->key = streamName;
 

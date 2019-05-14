@@ -58,59 +58,48 @@ public:
     void set_video_encoder(std::shared_ptr<media_encoder> &encoder);
     void set_audio_encoder(std::shared_ptr<media_encoder> &encoder);
 
-	int                                 reconnect_retry_sec = 0;
-	int                                 reconnect_retry_max = 0;
 	std::weak_ptr<media_encoder>		video_encoder;
 	std::weak_ptr<media_encoder>		audio_encoder;
 
 	void on_interleave_packets(encoder_packet &packet);
 
 private:
-	bool                                owns_info_id = false;
-
-	bool                                received_video = false;
-	bool                                received_audio = false;
-	volatile bool                       data_active = false;
-	volatile bool                       end_data_capture_thread_active = false;
-	int64_t                             video_offset = 0;
-	int64_t                             audio_offset = 0;
-	int64_t                             highest_audio_ts = 0;
-	int64_t                             highest_video_ts = 0;
+	bool                                received_video;
+	bool                                received_audio;
+	volatile bool                       data_active;
+	volatile bool                       end_data_capture_thread_active;
+	int64_t                             video_offset;
+	int64_t                             audio_offset;
+	int64_t                             highest_audio_ts;
+	int64_t                             highest_video_ts;
 	pthread_t                           end_data_capture_thread;
-	os_event_t                          *stopping_event = NULL;
+	os_event_t                          *stopping_event;
 	pthread_mutex_t                     interleaved_mutex;
 	std::vector<encoder_packet>         interleaved_packets;
-	int                                 stop_code = 0;
+	int                                 stop_code;
 
 
-	int                                 reconnect_retries = 0;
-	int                                 reconnect_retry_cur_sec = 0;
-	pthread_t                           reconnect_thread;
-	os_event_t                          *reconnect_stop_event = NULL;
-	volatile bool                       reconnecting = false;
-	volatile bool                       reconnect_thread_active = false;
 
-	int                                 total_frames = 0;
+	int                                 total_frames;
 
-	volatile bool                       active = false;
+	bool                       			active;
     std::weak_ptr<media_output>         video;
     std::weak_ptr<media_output>         audio;
 
 
-	uint32_t                            scaled_width = 0;
-	uint32_t                            scaled_height = 0;
+	uint32_t                            scaled_width;
+	uint32_t                            scaled_height;
 
-	bool                                video_conversion_set = false;
-	bool                                audio_conversion_set = false;
+	bool                                video_conversion_set;
+	bool                                audio_conversion_set;
 	video_scale_info             		video_conversion;
 	audio_convert_info           		audio_conversion;
 
-	bool                                 valid = false;
+	bool                                 valid;
 
 	std::string                         last_error_message;
 
 	static void *end_data_capture_thread_fun(void *data);
-	static void * reconnect_thread_fun(void *param);
 
 	bool can_begin_data_capture(bool encoded, bool has_video,
 			bool has_audio);
@@ -118,19 +107,15 @@ private:
 
 	void signal_stop();
 
-	void convert_flags(uint32_t flags, bool *encoded, bool *has_video, bool *has_audio);
-	void hook_data_capture(bool encoded, bool has_video, bool has_audio);
-	void do_output_signal(const char *signal);
+	void convert_flags(uint32_t flags, bool &encoded, bool &has_video, bool &has_audio);
+	void hook_data_capture(bool has_video, bool has_audio);
+	void do_output_signal();
 	bool audio_valid(bool encoded);
 	void pair_encoders();
-	bool can_reconnect(int code);
-	void output_reconnect();
 	void reset_packet_data();
 	void start_audio_encoders(encoded_callback_t encoded_callback);
 	void stop_audio_encoders(encoded_callback_t encoded_callback);
 	struct video_scale_info *get_video_conversion();
-	bool isReconnecting();
-	void signal_reconnect();
 
 	uint32_t video_get_width();
 	uint32_t video_get_height();

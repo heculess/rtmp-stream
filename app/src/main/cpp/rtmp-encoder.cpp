@@ -422,11 +422,13 @@ data_ptr(NULL)
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-encoder_packet::encoder_packet()
+encoder_packet::encoder_packet():
+is_attach_info(true)
 {
 }
 
-encoder_packet::encoder_packet(encoder_packet_info &info)
+encoder_packet::encoder_packet(encoder_packet_info &info):
+is_attach_info(true)
 {
     serialize_from(info);
 }
@@ -438,7 +440,7 @@ encoder_packet::~encoder_packet()
 
 void encoder_packet::packet_release()
 {
-    if(data_ptr)
+    if(is_attach_info && data_ptr)
         bfree(data_ptr);
 
     data_ptr = NULL;
@@ -464,8 +466,20 @@ int64_t encoder_packet::get_dts_usec()
 encoder_packet_info *encoder_packet::serialize_to()
 {
     data_size = get_serialize_size();
-    data_ptr = (uint8_t *)bmemdup(&data[0], data_size);
-    return dynamic_cast<encoder_packet_info *>(this);
+
+    do{
+        if(data_size == 0)
+            break;
+
+        if(data_ptr)
+            break;
+
+        is_attach_info = false;
+        data_ptr = (uint8_t *)bmemdup(&data[0], data_size);
+
+    }while(false);
+
+	return dynamic_cast<encoder_packet_info *>(this);
 }
 
 int64_t encoder_packet::get_serialize_size()
@@ -486,15 +500,14 @@ void encoder_packet::serialize_from(encoder_packet_info &info)
     track_idx = info.track_idx;
     type = info.type;
     keyframe = info.keyframe;
-    data_size = 0;
-    data_ptr = NULL;
+
 
     if(info.data_size > 0){
+        is_attach_info = true;
         data.resize(info.data_size,0);
         memcpy(&data[0],info.data_ptr,data.size());
-        bfree(info.data_ptr);
-        info.data_ptr = NULL;
-        info.data_size = 0;
+        data_size = info.data_size;
+        data_ptr = info.data_ptr;
     }
 }
 

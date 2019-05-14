@@ -305,7 +305,7 @@ void RtmpStream::set_output_error()
 			msg = "AddressNotAvailable";
 			break;
 	}
-	// non platform-specific errors
+
 	if (!msg) {
 		switch (rtmp.last_error_code) {
 			case -0x2700:
@@ -387,9 +387,6 @@ void RtmpStream::drop_frames(const char *name, int highest_priority, bool pframe
 int RtmpStream::init_send()
 {
 	int ret;
-	size_t idx = 0;
-	bool next = true;
-
 	reset_semaphore();
 
 	ret = pthread_create(&send_thread, NULL, send_thread_fun, this);
@@ -453,9 +450,8 @@ bool RtmpStream::send_meta_data()
 
 int RtmpStream::try_connect()
 {
-	if (path.empty()) {
+	if (path.empty())
 		return OBS_OUTPUT_BAD_PATH;
-	}
 
 	RTMP_Init(&rtmp);
 	if (!RTMP_SetupURL(&rtmp, path.c_str()))

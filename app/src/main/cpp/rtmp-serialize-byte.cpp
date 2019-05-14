@@ -8,7 +8,8 @@ SerializeByte::SerializeByte()
 
 SerializeByte::~SerializeByte()
 {
-    array_output_serializer_free(&data);
+    if(data.bytes.num > 0)
+        array_output_serializer_free(&data);
 }
 
 void SerializeByte::write_uint8(uint8_t u8)
