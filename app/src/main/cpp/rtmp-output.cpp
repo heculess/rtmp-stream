@@ -47,20 +47,15 @@ audio_conversion_set(false),
 valid(false),
 stopping_event(NULL)
 {
-	do{
-		pthread_mutex_init_value(&interleaved_mutex);
+	pthread_mutex_init_value(&interleaved_mutex);
 
-		if (pthread_mutex_init(&interleaved_mutex, NULL) != 0)
-			break;
-		if (os_event_init(&stopping_event, OS_EVENT_TYPE_MANUAL) != 0)
-			break;
-
-		os_event_signal(stopping_event);
-		valid = true;
+	if (pthread_mutex_init(&interleaved_mutex, NULL) != 0)
 		return;
-	}while(false);
+	if (os_event_init(&stopping_event, OS_EVENT_TYPE_MANUAL) != 0)
+		return;
 
-	destroy();
+	os_event_signal(stopping_event);
+	valid = true;
 }
 
 RtmpOutput::~RtmpOutput()
@@ -312,6 +307,7 @@ void *RtmpOutput::end_data_capture_thread_fun(void *data)
 void RtmpOutput::reset_packet_data()
 {
 	received_audio   = false;
+    LOGI("reset_packet_data-------------------- ");
 	received_video   = false;
 	highest_audio_ts = 0;
 	highest_video_ts = 0;
@@ -424,7 +420,6 @@ bool RtmpOutput::output_start()
 		return true;
 	}
 	return false;
-
 }
 
 bool RtmpOutput::output_active()
@@ -436,10 +431,9 @@ void RtmpOutput::output_stop()
 {
     if (!is_active())
         return;
-
     if (!stopping()) {
         do_output_signal();
-        actual_stop(false, os_gettime_ns());
+        actual_stop(false);
     }
 }
 
@@ -502,28 +496,21 @@ void RtmpOutput::force_stop()
 		stop_code = 0;
 		do_output_signal();
 	}
-	actual_stop(true, 0);
+	actual_stop(true);
 }
 
-void RtmpOutput::actual_stop(bool force, uint64_t ts)
+void RtmpOutput::actual_stop(bool force)
 {
-	bool call_stop = true;
-
 	if (stopping() && !force)
 		return;
 	os_event_reset(stopping_event);
-
-	if (force)
-		call_stop = true;
-
-	if (call_stop)
-		stop(ts);
+	stop();
 }
 
 void RtmpOutput::destroy()
 {
 	if (valid && is_active())
-		actual_stop(true, 0);
+		actual_stop(true);
 
 	os_event_wait(stopping_event);
 	if (os_atomic_load_bool(&end_data_capture_thread_active))
@@ -545,10 +532,8 @@ void RtmpOutput::on_interleave_packets(encoder_packet &packet)
 	encoder_packet out;
 	bool was_started;
 
-	if (!is_active()){
-		LOGI("on_interleave_packets-------------------- is not active");
+	if (!is_active())
 		return;
-	}
 
 	if (packet.type == OBS_ENCODER_AUDIO)
 		packet.track_idx = 0;
@@ -560,13 +545,11 @@ void RtmpOutput::on_interleave_packets(encoder_packet &packet)
 		!packet.keyframe) {
 		discard_unused_audio_packets(packet.dts_usec);
 		pthread_mutex_unlock(&interleaved_mutex);
-
-		LOGI("on_interleave_packets-------------------- discard_unused_audio_packets");
+		LOGI("on_interleave_packets-------------------- discard_unused_audio_packets received_video %d, packet.type %d, packet.keyframe %d",received_video,packet.type,packet.keyframe );
 		return;
 	}
 
 	was_started = received_audio && received_video;
-
     packet.create_instance(out);
 
 	if (was_started)
@@ -575,6 +558,7 @@ void RtmpOutput::on_interleave_packets(encoder_packet &packet)
 		check_received(packet);
 
 	insert_interleaved_packet(out);
+
 	set_higher_ts(out);
 	if (received_audio && received_video) {
 		LOGI("on_interleave_packets-------------------- was_started : %d ",was_started);
@@ -584,8 +568,6 @@ void RtmpOutput::on_interleave_packets(encoder_packet &packet)
 					resort_interleaved_packets();
 					send_interleaved();
 				}
-				else
-					LOGI("initialize_interleaved_packets-------------------- failed ");
 			}
 			else
 				LOGI("prune_interleaved_packets-------------------- failed");
@@ -660,7 +642,7 @@ void RtmpOutput::check_received(encoder_packet &out)
 {
 	if (out.type == OBS_ENCODER_VIDEO) {
 		if (!received_video)
-			received_video = true;
+            received_video = true;
 	} else {
 		if (!received_audio)
 			received_audio = true;
@@ -678,9 +660,7 @@ void RtmpOutput::insert_interleaved_packet(encoder_packet &out)
 			break;
 		}
 	}
-
-	interleaved_packets.insert(interleaved_packets.begin()+idx,
-									   out);
+	interleaved_packets.insert(interleaved_packets.begin()+idx,out);
 }
 
 void RtmpOutput::set_higher_ts(encoder_packet &packet)
@@ -709,77 +689,58 @@ bool RtmpOutput::prune_interleaved_packets()
 
 	if (start_idx)
 		discard_to_idx(start_idx);
-
+    LOGI("prune_interleaved_packets --------------------  ");
 	return true;
 }
 
 int RtmpOutput::prune_premature_packets()
 {
-	int max_idx;
-	int64_t duration_usec;
-	int64_t max_diff = 0;
-	int64_t diff = 0;
-
-	int video_idx = find_first_packet_type_idx(OBS_ENCODER_VIDEO, 0);
+	int video_idx = find_first_packet_type_idx(OBS_ENCODER_VIDEO);
 	if (video_idx == -1) {
 		received_video = false;
 		return -1;
 	}
 
-	max_idx = video_idx;
+    int max_idx = video_idx;
 	encoder_packet &packet = interleaved_packets[video_idx];
-	duration_usec = packet.timebase_num*1000000LL / packet.timebase_den;
-
-	int audio_idx = find_first_packet_type_idx(OBS_ENCODER_AUDIO, 0);
+    int64_t duration_usec = packet.timebase_num*1000000LL / packet.timebase_den;
+	int audio_idx = find_first_packet_type_idx(OBS_ENCODER_AUDIO);
 	if (audio_idx == -1) {
 		received_audio = false;
 		return -1;
 	}
-
 	if (audio_idx > max_idx)
 		max_idx = audio_idx;
 
-	diff = interleaved_packets[audio_idx].dts_usec - interleaved_packets[video_idx].dts_usec;
-	if (diff > max_diff)
-		max_diff = diff;
-
-	return diff > duration_usec ? max_idx + 1 : 0;
+    int64_t diff = interleaved_packets[audio_idx].dts_usec - interleaved_packets[video_idx].dts_usec;
+	return video_idx;//diff > duration_usec ? max_idx + 1 : 0;
 }
 
-int RtmpOutput::find_last_packet_type_idx(enum obs_encoder_type type, size_t audio_idx)
+int RtmpOutput::find_last_packet_type_idx(enum obs_encoder_type type)
 {
 	for (size_t i = interleaved_packets.size(); i > 0; i--) {
-		if (interleaved_packets[i - 1].type == type) {
-			if (type == OBS_ENCODER_AUDIO &&
-					interleaved_packets[i - 1].track_idx != audio_idx) {
-				continue;
-			}
-
+		if (interleaved_packets[i - 1].type == type)
 			return (int)(i - 1);
-		}
 	}
 
 	return -1;
 }
 
-int RtmpOutput::find_first_packet_type_idx(obs_encoder_type type, size_t audio_idx)
+int RtmpOutput::find_first_packet_type_idx(obs_encoder_type type)
 {
 	for (size_t i = 0; i < interleaved_packets.size(); i++) {
-		if (interleaved_packets[i].type == type) {
-			if (type == OBS_ENCODER_AUDIO &&
-                    interleaved_packets[i].track_idx != audio_idx) {
-				continue;
-			}
+        LOGI("find_first_packet_type_idx %d --------------------interleaved_packets.type %d" ,type, interleaved_packets[i].type );
+		if (interleaved_packets[i].type == type)
 			return (int)i;
-		}
 	}
+
+    LOGI("find_first_packet_type_idx OBS_ENCODER_VIDEO -------------------- failed interleaved_packets.size %d" ,interleaved_packets.size() );
 	return -1;
 }
 
-bool RtmpOutput::find_first_packet_type(encoder_packet &packet, enum obs_encoder_type type,
-		size_t audio_idx)
+bool RtmpOutput::find_first_packet_type(encoder_packet &packet, obs_encoder_type type)
 {
-	int idx = find_first_packet_type_idx(type, audio_idx);
+	int idx = find_first_packet_type_idx(type);
 	if(idx == -1)
 		return false;
 	packet = interleaved_packets[idx];
@@ -790,9 +751,9 @@ size_t RtmpOutput::get_interleaved_start_idx()
 {
 	int64_t closest_diff = 0x7FFFFFFFFFFFFFFFLL;
 	encoder_packet first_video;
-	if(!find_first_packet_type(first_video,OBS_ENCODER_VIDEO, 0))
+	if(!find_first_packet_type(first_video,OBS_ENCODER_VIDEO))
 		return DARRAY_INVALID;
-	size_t video_idx = find_first_packet_type_idx(OBS_ENCODER_VIDEO, 0);
+	size_t video_idx = find_first_packet_type_idx(OBS_ENCODER_VIDEO);
 	size_t idx = 0;
 
 	int packets_size = interleaved_packets.size();
@@ -818,7 +779,7 @@ bool RtmpOutput::initialize_interleaved_packets()
 	if (!get_audio_and_video_packets(video, audio))
 		return false;
 
-	find_last_packet_type(last_audio, OBS_ENCODER_AUDIO,0);
+	find_last_packet_type(last_audio, OBS_ENCODER_AUDIO);
 
 	if (last_audio.dts_usec < video.dts_usec) {
 		received_audio = false;
@@ -849,12 +810,13 @@ bool RtmpOutput::initialize_interleaved_packets()
 bool RtmpOutput::get_audio_and_video_packets(encoder_packet &video,
 										encoder_packet &audio)
 {
-	if (!find_first_packet_type(video,OBS_ENCODER_VIDEO, 0)){
+	if (!find_first_packet_type(video,OBS_ENCODER_VIDEO)){
+        LOGI("find_first_packet_type -------------------- ");
 		received_video = false;
 		return false;
 	}
 
-	if (!find_first_packet_type(audio, OBS_ENCODER_AUDIO, 0)) {
+	if (!find_first_packet_type(audio, OBS_ENCODER_AUDIO)) {
 		received_audio = false;
 		return false;
 	}
@@ -862,10 +824,9 @@ bool RtmpOutput::get_audio_and_video_packets(encoder_packet &video,
 	return true;
 }
 
-bool RtmpOutput::find_last_packet_type(encoder_packet &packet, enum obs_encoder_type type,
-		size_t audio_idx)
+bool RtmpOutput::find_last_packet_type(encoder_packet &packet, obs_encoder_type type)
 {
-	int idx = find_last_packet_type_idx(type, audio_idx);
+	int idx = find_last_packet_type_idx(type);
 	if(idx == -1)
 		return false;
 	packet = interleaved_packets[idx];

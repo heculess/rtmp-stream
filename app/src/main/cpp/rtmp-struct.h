@@ -149,6 +149,8 @@ class media_output
 {
 public:
     virtual ~media_output(){}
+    virtual bool output_open(){}
+    virtual void output_close(){}
     bool  initialized  = false;
 };
 
@@ -259,10 +261,10 @@ struct video_output_info {
 };
 
 struct video_input {
-    struct video_scale_info   conversion;
+    video_scale_info   conversion;
     void (*callback)(void *param, struct video_data *frame) = NULL;
     void *param = NULL;
-    uint64_t                    last_output_timestamp = 0;
+    uint64_t last_output_timestamp = 0;
 };
 
 struct audio_resampler;

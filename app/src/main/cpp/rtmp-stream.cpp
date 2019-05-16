@@ -21,9 +21,6 @@ buffer_has_data_event(NULL),
 socket_available_event(NULL),
 send_thread_signaled_exit(NULL),
 start_dts_offset(0),
-max_shutdown_time_sec(0),
-stop_ts(0),
-shutdown_timeout_ts(0),
 drop_threshold_usec(0),
 pframe_drop_threshold_usec(0),
 min_priority(0),
@@ -79,7 +76,6 @@ void RtmpStream::stream_destroy()
 		if (connecting)
 			pthread_join(connect_thread, NULL);
 
-		stop_ts = 0;
 		os_event_signal(stop_event);
 
 		if (is_stream_active()) {
@@ -98,29 +94,21 @@ bool RtmpStream::start()
 		return false;
 	if (!initialize_encoders())
 		return false;
-
 	os_atomic_set_bool(&connecting, true);
 	return pthread_create(&connect_thread, NULL, connect_thread_fun,
 						  this) == 0;
 }
 
-void RtmpStream::stop(uint64_t ts)
+void RtmpStream::stop()
 {
-	if (stopping() && ts != 0)
+	if (stopping())
 		return;
-
 	if (isConnecting())
 		pthread_join(connect_thread, NULL);
 
-	stop_ts = ts / 1000ULL;
-
-	if (ts)
-		shutdown_timeout_ts = ts + (uint64_t)max_shutdown_time_sec * 1000000000ULL;
-
 	if (is_stream_active()) {
 		os_event_signal(stop_event);
-		if (stop_ts == 0)
-			os_sem_post(send_sem);
+		os_sem_post(send_sem);
 	} else {
 		signal_stop(OBS_OUTPUT_SUCCESS);
 	}
@@ -488,9 +476,8 @@ bool RtmpStream::init_connect()
 	int64_t drop_p;
 	int64_t drop_b;
 
-	if (stopping()) {
+	if (stopping())
 		pthread_join(send_thread, NULL);
-	}
 
 	free_packets();
 
@@ -502,7 +489,6 @@ bool RtmpStream::init_connect()
 
 	drop_b = 700;
 	drop_p = 900;
-	max_shutdown_time_sec = 30;
 
 	if (drop_p < (drop_b + 200))
 		drop_p = drop_b + 200;
@@ -523,7 +509,7 @@ void * RtmpStream::send_thread_fun(void *data)
 
 	while (os_sem_wait(stream->send_sem) == 0) {
 
-		if (stream->stopping() && stream->stop_ts == 0)
+		if (stream->stopping())
 			break;
 
 		encoder_packet_info packet_info;
@@ -544,8 +530,11 @@ void * RtmpStream::send_thread_fun(void *data)
 				break;
 			}
 		}
-
+/*
+		stream->send_packet(packet, false, packet.track_idx);
+*/
 		if (stream->send_packet(packet, false, packet.track_idx) < 0) {
+            LOGI("send_packet ---------------------------------------------------------------------- %d ", stream->rtmp.last_error_code);
 			os_atomic_set_bool(&stream->disconnected, true);
 			break;
 		}
@@ -558,9 +547,8 @@ void * RtmpStream::send_thread_fun(void *data)
 	if (!stream->stopping()) {
 		pthread_detach(stream->send_thread);
 		stream->signal_stop(OBS_OUTPUT_DISCONNECTED);
-	} else {
+	} else
 		stream->end_data_capture();
-	}
 
 	stream->free_packets();
 	os_event_reset(stream->stop_event);
@@ -585,10 +573,7 @@ bool RtmpStream::get_next_packet(encoder_packet_info &packet)
 
 bool RtmpStream::can_shutdown_stream(encoder_packet &packet)
 {
-	uint64_t cur_time = os_gettime_ns();
-	bool timeout = cur_time >= shutdown_timeout_ts;
-
-	return timeout || packet.sys_dts_usec >= (int64_t)stop_ts;
+	return true;
 }
 
 bool RtmpStream::send_headers()
@@ -608,14 +593,14 @@ bool RtmpStream::send_audio_header()
 	std::shared_ptr<aacEncoder> aencoder =
 			std::dynamic_pointer_cast<aacEncoder>(get_audio_encoder());
 
-	struct encoder_packet packet;
-    packet.type = OBS_ENCODER_AUDIO;
-    packet.timebase_den = 1;
-
 	if (!aencoder)
 		return true;
 
+	encoder_packet packet;
+	packet.type = OBS_ENCODER_AUDIO;
+	packet.timebase_den = 1;
     packet.data = aencoder->get_encode_header();
+
 	return send_packet(packet, true, 0) >= 0;
 }
 
@@ -624,14 +609,13 @@ bool RtmpStream::send_video_header()
     std::shared_ptr<X264Encoder> vencoder =
             std::dynamic_pointer_cast<X264Encoder>(get_video_encoder());
 
-	struct encoder_packet packet;
-    packet.type = OBS_ENCODER_VIDEO;
-    packet.timebase_den = 1;
-    packet.keyframe = true;
-
     if (!vencoder)
         return true;
 
+	encoder_packet packet;
+	packet.type = OBS_ENCODER_VIDEO;
+	packet.timebase_den = 1;
+	packet.keyframe = true;
     packet.data = vencoder->get_encode_header();
 
 	return send_packet(packet, true, 0) >= 0;
@@ -658,11 +642,20 @@ bool RtmpStream::discard_recv_data(size_t size)
 
 int RtmpStream::send_packet(encoder_packet &packet, bool is_header, size_t idx)
 {
+	int recv_size = 0;
+	int ret = ioctl(rtmp.m_sb.sb_socket, FIONREAD, &recv_size);
+	if (ret >= 0 && recv_size > 0) {
+		if (!discard_recv_data((size_t)recv_size)){
+            LOGI("discard_recv_data----------------------------------------!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+            return -1;
+		}
+
+	}
+
 	std::vector<uint8_t> send_data =
 			FLVPackager::flv_packet_mux(packet, is_header ? 0 : start_dts_offset,is_header);
 
 	int data_size = send_data.size();
-    int ret = 0;
 	if(data_size > 0)
         ret = RTMP_Write(&rtmp, (char*)&send_data[0], data_size, (int)idx);
     LOGI("send_packet------------------------------------------------------------ packet size : %d",data_size);

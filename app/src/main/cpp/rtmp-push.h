@@ -40,7 +40,7 @@ public:
     bool StartStreaming(const char *stream_url, const char *stream_name);
     void StopStreaming();
 
-    void Push_video_data(struct video_data *input_frame);
+    void Push_video_data(video_data &input_frame);
 
     inline bool Active()
     {

@@ -11,31 +11,42 @@ channels(0),
 sample_rate(0),
 stop_event(NULL)
 {
-	pthread_mutexattr_t attr;
 	info         = audio_info;
 	channels     = audio_info.speakers;
 	input_cb     = audio_info.input_callback;
 	sample_rate  = audio_info.samples_per_sec;
 	block_size   = get_audio_bytes_per_channel(audio_info.format);
 
-    do
-    {
-        if (pthread_mutexattr_init(&attr) != 0)
-            break;
-        if (pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE) != 0)
-            break;
-        if (pthread_mutex_init(&input_mutex, &attr) != 0)
-            break;
-        if (os_event_init(&stop_event, OS_EVENT_TYPE_MANUAL) != 0)
-            break;
-        if (pthread_create(&thread, NULL, audio_thread, this) != 0)
-            break;
-        initialized = true;
+    initialized = false;
+    pthread_mutexattr_t attr;
+    if (pthread_mutexattr_init(&attr) != 0)
+        return;
+    if (pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE) != 0)
+        return;
+    if (pthread_mutex_init(&input_mutex, &attr) != 0)
+        return;
+    if (os_event_init(&stop_event, OS_EVENT_TYPE_MANUAL) != 0)
         return;
 
-    }while(false);
+    initialized  = true;
+}
 
-    audio_output_close();
+AudioOutput::~AudioOutput()
+{
+    output_close();
+    mixe.inputs.clear();
+    os_event_destroy(stop_event);
+    pthread_mutex_destroy(&input_mutex);
+}
+
+bool AudioOutput::output_open()
+{
+    os_event_reset(stop_event);
+
+    if (pthread_create(&thread, NULL, audio_thread, this) != 0)
+        return false;
+
+    return true;
 }
 
 size_t AudioOutput::get_audio_bytes_per_channel(enum audio_format format)
@@ -95,18 +106,13 @@ void *AudioOutput::audio_thread(void *param)
     return NULL;
 }
 
-void AudioOutput::audio_output_close()
+void AudioOutput::output_close()
 {
-    void *thread_ret;
-
     if (initialized) {
         os_event_signal(stop_event);
+        void *thread_ret = NULL;
         pthread_join(thread, &thread_ret);
     }
-
-    mixe.inputs.clear();
-
-    os_event_destroy(stop_event);
 }
 
 uint64_t AudioOutput::audio_frames_to_ns(size_t sample_rate,
@@ -131,10 +137,7 @@ void AudioOutput::input_and_output(uint64_t audio_time, uint64_t prev_time)
                   &new_ts, sample_rate, &data))
         return;
 
-    // clamps audio data to -1.0..1.0
     clamp_audio_output(bytes);
-
-    // output
     do_audio_output(new_ts, AUDIO_OUTPUT_FRAMES);
 
 }
@@ -189,7 +192,7 @@ bool AudioOutput::connect(const struct audio_convert_info *conversion,
     pthread_mutex_lock(&input_mutex);
 
     if (audio_get_input_idx(callback, param) == DARRAY_INVALID) {
-        struct audio_input aInput;
+        audio_input aInput;
         aInput.callback = callback;
         aInput.param    = param;
 

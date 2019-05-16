@@ -115,7 +115,7 @@ bool X264Encoder::encode(struct encoder_frame *frame,
 		packet.dts           = frame->pts;
 		packet.keyframe      = frameType == OBS_NAL_SLICE_IDR;
 
-		LOGI("obs_x264_encode------------------- packet size : %d",packet.data.size());
+		LOGI("X264Encoder------------------- packet size : %d",packet.data.size());
 	}
 
 	return true;

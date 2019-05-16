@@ -19,7 +19,7 @@ public:
 	virtual ~RtmpStream();
 
 	bool start();
-	void stop(uint64_t ts);
+	void stop();
 	void encoded_packet(encoder_packet &packet);
 	uint64_t get_total_bytes();
 	float get_congestion();
@@ -50,13 +50,8 @@ protected:
 	volatile bool    disconnected;
 	pthread_t        send_thread;
 
-	int              max_shutdown_time_sec;
-
 	os_sem_t         *send_sem;
 	os_event_t       *stop_event;
-	uint64_t         stop_ts;
-	uint64_t         shutdown_timeout_ts;
-
 
 	std::string		  encoder_name;
 	std::string		  bind_ip;

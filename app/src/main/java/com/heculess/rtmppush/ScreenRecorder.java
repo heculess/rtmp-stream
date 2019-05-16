@@ -22,8 +22,8 @@ public class ScreenRecorder extends Thread {
     private int mDpi;
     private MediaProjection mMediaProjection;
 
-    private static final int FRAME_RATE = 60; // 60 fps
-    private static final int IFRAME_INTERVAL = 2; // 2 seconds between I-frames
+    private static final int FRAME_RATE = 60;
+    private static final int IFRAME_INTERVAL = 2;
     private static final int TIMEOUT_US = 10000;
 
     private MediaCodec mEncoder;
@@ -32,9 +32,7 @@ public class ScreenRecorder extends Thread {
     private MediaCodec.BufferInfo mBufferInfo = new MediaCodec.BufferInfo();
     private VirtualDisplay mVirtualDisplay;
 
-    static {
-        System.loadLibrary("native-lib");
-    }
+
 
     public ScreenRecorder(int width, int height, int bitrate, int dpi, MediaProjection mp) {
         super(TAG);
@@ -43,6 +41,12 @@ public class ScreenRecorder extends Thread {
         mBitRate = bitrate;
         mDpi = dpi;
         mMediaProjection = mp;
+    }
+
+    public final void quit() {
+        if(mQuit != null){
+            mQuit.set(true);
+        }
     }
 
     @Override
@@ -71,8 +75,8 @@ public class ScreenRecorder extends Thread {
         format.setInteger(MediaFormat.KEY_COLOR_FORMAT,
                 MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
         format.setInteger(MediaFormat.KEY_BIT_RATE, 6000000);
-        //format.setInteger(MediaFormat.KEY_BITRATE_MODE,
-        //        MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR);
+        format.setInteger(MediaFormat.KEY_BITRATE_MODE,
+                MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR);
         format.setInteger(MediaFormat.KEY_FRAME_RATE, FRAME_RATE);
         format.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, IFRAME_INTERVAL);
         mEncoder = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC);
@@ -85,9 +89,6 @@ public class ScreenRecorder extends Thread {
         while (!mQuit.get()) {
             int eobIndex = mEncoder.dequeueOutputBuffer(mBufferInfo, TIMEOUT_US);
             switch (eobIndex) {
-                case MediaCodec.INFO_OUTPUT_BUFFERS_CHANGED:
-                    Log.d(TAG, "VideoSenderThread,MediaCodec.INFO_OUTPUT_BUFFERS_CHANGED");
-                    break;
                 case MediaCodec.INFO_TRY_AGAIN_LATER:
                     break;
                 case MediaCodec.INFO_OUTPUT_FORMAT_CHANGED:
@@ -97,14 +98,8 @@ public class ScreenRecorder extends Thread {
                     break;
                 default:
                     Log.d(TAG, "VideoSenderThread,MediaCode,eobIndex=" + eobIndex);
-                    /**
-                     * we send sps pps already in INFO_OUTPUT_FORMAT_CHANGED
-                     * so we ignore MediaCodec.BUFFER_FLAG_CODEC_CONFIG
-                     */
-                    if (mBufferInfo.flags != MediaCodec.BUFFER_FLAG_CODEC_CONFIG && mBufferInfo.size != 0) {
+                    if (mBufferInfo.flags != MediaCodec.BUFFER_FLAG_CODEC_CONFIG && mBufferInfo.size != 0 && eobIndex > 0) {
                         ByteBuffer realData = mEncoder.getOutputBuffer(eobIndex);
-                        //realData.position(mBufferInfo.offset + 4);
-                        //realData.limit(mBufferInfo.offset + mBufferInfo.size);
                         sendRealData(mBufferInfo.presentationTimeUs, realData);
                     }
                     mEncoder.releaseOutputBuffer(eobIndex, false);

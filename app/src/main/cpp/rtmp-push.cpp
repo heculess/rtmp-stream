@@ -68,12 +68,16 @@ void RtmpPush::audio_output_open()
 {
     if(!audio)
         audio = std::make_shared<AudioOutput>(audio_info);
+
+    audio->output_open();
 }
 
 void RtmpPush::video_output_open()
 {
     if(!video)
         video = std::make_shared<VideoOutput>(video_info);
+
+    video->output_open();
 }
 
 void RtmpPush::SetupOutputs()
@@ -87,8 +91,10 @@ bool RtmpPush::StartStreaming(const char *stream_url, const char *stream_name)
     audio_output_open();
     video_output_open();
 
-    h264Streaming = std::make_shared<X264Encoder>();
-    aacStreaming = std::make_shared<aacEncoder>();
+    if(!h264Streaming)
+        h264Streaming = std::make_shared<X264Encoder>();
+    if(!aacStreaming)
+        aacStreaming = std::make_shared<aacEncoder>();
 
 	if (!Active())
 		SetupOutputs();
@@ -123,9 +129,14 @@ void RtmpPush::StopStreaming()
             std::dynamic_pointer_cast<RtmpOutput>(streamOutput);
     if(!output_stream)
         return;
-
 	if (output_stream->output_active())
         output_stream->output_stop();
+
+	if(audio)
+        audio->output_close();
+	if(video)
+        audio->output_close();
+
 }
 
 RtmpPush::RtmpPush()
@@ -150,7 +161,7 @@ RtmpPush::RtmpPush()
 
 }
 
-void RtmpPush::Push_video_data(struct video_data *input_frame)
+void RtmpPush::Push_video_data(video_data &input_frame)
 {
     std::shared_ptr<VideoOutput> video_output =
             std::dynamic_pointer_cast<VideoOutput>(video);

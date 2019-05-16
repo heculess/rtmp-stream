@@ -120,7 +120,6 @@ void media_encoder::do_encode(struct encoder_frame *frame)
 	pkt.timebase_den = timebase_den;
 
 	success = encode(frame, pkt, &received);
-
 	send_off_encoder_packet(success, received, pkt);
 }
 
@@ -230,7 +229,6 @@ void media_encoder::start_internal(void (*new_packet)(void *param, encoder_packe
 		cur_pts = 0;
 		add_connection();
 	}
-
 }
 
 size_t media_encoder::get_callback_idx(

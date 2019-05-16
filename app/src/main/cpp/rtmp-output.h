@@ -125,7 +125,7 @@ private:
 
 	bool has_scaling();
     void force_stop();
-    void actual_stop(bool force, uint64_t ts);
+    void actual_stop(bool force);
 
     void destroy();
 
@@ -139,15 +139,13 @@ private:
 	void set_higher_ts(encoder_packet &packet);
 	bool prune_interleaved_packets();
 	int prune_premature_packets();
-	int find_last_packet_type_idx(enum obs_encoder_type type, size_t audio_idx);
-	int find_first_packet_type_idx(obs_encoder_type type, size_t audio_idx);
-	bool find_first_packet_type(encoder_packet &packet, enum obs_encoder_type type,
-														size_t audio_idx);
+	int find_last_packet_type_idx(obs_encoder_type type);
+	int find_first_packet_type_idx(obs_encoder_type type);
+	bool find_first_packet_type(encoder_packet &packet, obs_encoder_type type);
 	size_t get_interleaved_start_idx();
 	bool initialize_interleaved_packets();
 	bool get_audio_and_video_packets(encoder_packet &ideo, encoder_packet &audio);
-	bool find_last_packet_type(encoder_packet &packet, enum obs_encoder_type type,
-													   size_t audio_idx);
+	bool find_last_packet_type(encoder_packet &packet, obs_encoder_type type);
 	void resort_interleaved_packets();
 	void free_packets();
 
