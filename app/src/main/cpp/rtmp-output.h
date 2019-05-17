@@ -73,19 +73,22 @@ private:
 	int64_t                             highest_audio_ts;
 	int64_t                             highest_video_ts;
 	pthread_t                           end_data_capture_thread;
+	pthread_t                  			signal_notify_thread;
 	os_event_t                          *stopping_event;
 	pthread_mutex_t                     interleaved_mutex;
+
 	std::vector<encoder_packet>         interleaved_packets;
 	int                                 stop_code;
 
-
-
 	int                                 total_frames;
-
+	int                                 status;
 	bool                       			active;
+
+	pthread_mutex_t                     status_mutex;
     std::weak_ptr<media_output>         video;
     std::weak_ptr<media_output>         audio;
 
+	os_sem_t                            *status_semaphore;
 
 	uint32_t                            scaled_width;
 	uint32_t                            scaled_height;
@@ -95,11 +98,12 @@ private:
 	video_scale_info             		video_conversion;
 	audio_convert_info           		audio_conversion;
 
-	bool                                 valid;
+	bool                                valid;
 
 	std::string                         last_error_message;
 
 	static void *end_data_capture_thread_fun(void *data);
+	static void *rtmp_status_update(void *param);
 
 	bool can_begin_data_capture(bool encoded, bool has_video,
 			bool has_audio);
@@ -109,7 +113,7 @@ private:
 
 	void convert_flags(uint32_t flags, bool &encoded, bool &has_video, bool &has_audio);
 	void hook_data_capture(bool has_video, bool has_audio);
-	void do_output_signal();
+	void do_output_signal(int code_def);
 	bool audio_valid(bool encoded);
 	void pair_encoders();
 	void reset_packet_data();
@@ -148,6 +152,8 @@ private:
 	bool find_last_packet_type(encoder_packet &packet, obs_encoder_type type);
 	void resort_interleaved_packets();
 	void free_packets();
+
+	void update_status();
 
 	bool is_active();
 };

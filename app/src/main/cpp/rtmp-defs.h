@@ -73,6 +73,16 @@ bool audio_callback(void *param,
                     uint32_t mixers, struct audio_output_data *mixes);
 
 
+enum {
+    RTMP_STREAM_INIT = 0,
+    RTMP_STREAM_ACTIVE,
+    RTMP_STREAM_DEACTIVE,
+    RTMP_STREAM_STARTING,
+    RTMP_STREAM_START,
+    RTMP_STREAM_STOPPING,
+};
+
+
 #define OBS_OUTPUT_SUCCESS         0
 #define OBS_OUTPUT_BAD_PATH       -1
 #define OBS_OUTPUT_CONNECT_FAILED -2

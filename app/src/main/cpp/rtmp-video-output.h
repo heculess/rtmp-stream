@@ -40,7 +40,6 @@ protected:
 	bool                                stop;
 
 	os_sem_t                            *update_semaphore;
-	//volatile long                       total_frames;
 
 	pthread_mutex_t                     input_mutex;
 	video_data                          cache;

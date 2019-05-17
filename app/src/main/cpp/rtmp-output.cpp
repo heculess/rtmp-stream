@@ -45,13 +45,22 @@ active(false),
 video_conversion_set(false),
 audio_conversion_set(false),
 valid(false),
-stopping_event(NULL)
+status(RTMP_STREAM_INIT),
+stopping_event(NULL),
+status_semaphore(NULL)
 {
 	pthread_mutex_init_value(&interleaved_mutex);
 
 	if (pthread_mutex_init(&interleaved_mutex, NULL) != 0)
 		return;
+	if (pthread_mutex_init(&status_mutex, NULL) != 0)
+		return;
 	if (os_event_init(&stopping_event, OS_EVENT_TYPE_MANUAL) != 0)
+		return;
+	if (os_sem_init(&status_semaphore, 0) != 0)
+		return;
+
+	if (pthread_create(&signal_notify_thread, NULL, rtmp_status_update, this) != 0)
 		return;
 
 	os_event_signal(stopping_event);
@@ -64,6 +73,12 @@ RtmpOutput::~RtmpOutput()
 
     os_event_destroy(stopping_event);
     pthread_mutex_destroy(&interleaved_mutex);
+	pthread_mutex_destroy(&status_mutex);
+
+	valid = false;
+	os_sem_post(status_semaphore);
+	void *thread_ret = NULL;
+	pthread_join(signal_notify_thread, &thread_ret);
 
     if (!last_error_message.empty())
         last_error_message.clear();
@@ -95,10 +110,10 @@ bool RtmpOutput::begin_data_capture()
 	os_atomic_set_bool(&data_active, true);
 	hook_data_capture(has_video, has_audio);
 
-	do_output_signal();
+	do_output_signal(RTMP_STREAM_ACTIVE);
 	os_atomic_set_bool(&active, true);
 
-	do_output_signal();
+	do_output_signal(RTMP_STREAM_START);
 
 	return true;
 }
@@ -242,11 +257,12 @@ void RtmpOutput::hook_data_capture(bool has_video, bool has_audio)
 		video_encoder.lock()->start(interleave_packets,this);
 }
 
-void RtmpOutput::do_output_signal()
+void RtmpOutput::do_output_signal(int code_def)
 {
-	calldata params = {0};
-	calldata_set_ptr(&params, "output", this);
-	calldata_free(&params);
+	pthread_mutex_lock(&status_mutex);
+	status = code_def;
+	pthread_mutex_unlock(&status_mutex);
+	os_sem_post(status_semaphore);
 }
 
 bool RtmpOutput::audio_valid(bool encoded)
@@ -295,7 +311,7 @@ void *RtmpOutput::end_data_capture_thread_fun(void *data)
 	if (has_audio)
 		output->stop_audio_encoders(interleave_packets);
 
-	output->do_output_signal();
+	output->do_output_signal(RTMP_STREAM_DEACTIVE);
 	LOGI("end_data_capture_thread_fun--------------------------------------------------!!!!!!!!!!!!!!!!!!!!!!!!!!!! ");
 	os_atomic_set_bool(&output->active, false);
 	os_event_signal(output->stopping_event);
@@ -416,7 +432,7 @@ bool RtmpOutput::actual_start()
 bool RtmpOutput::output_start()
 {
 	if (actual_start()) {
-		do_output_signal();
+		do_output_signal(RTMP_STREAM_STARTING);
 		return true;
 	}
 	return false;
@@ -432,9 +448,12 @@ void RtmpOutput::output_stop()
     if (!is_active())
         return;
     if (!stopping()) {
-        do_output_signal();
+        do_output_signal(RTMP_STREAM_STOPPING);
         actual_stop(false);
     }
+
+	video.lock()->output_close();
+	audio.lock()->output_close();
 }
 
 bool RtmpOutput::is_data_active()
@@ -494,7 +513,7 @@ void RtmpOutput::force_stop()
 {
 	if (!stopping()) {
 		stop_code = 0;
-		do_output_signal();
+		do_output_signal(RTMP_STREAM_STOPPING);
 	}
 	actual_stop(true);
 }
@@ -689,7 +708,7 @@ bool RtmpOutput::prune_interleaved_packets()
 
 	if (start_idx)
 		discard_to_idx(start_idx);
-    LOGI("prune_interleaved_packets --------------------  ");
+
 	return true;
 }
 
@@ -851,4 +870,31 @@ bool RtmpOutput::is_active()
 {
     return os_atomic_load_bool(&active);
 }
+
+void *RtmpOutput::rtmp_status_update(void *param)
+{
+	RtmpOutput *rtmp_output = (RtmpOutput *)param;
+
+	os_set_thread_name("rtmp-output: status monitor thread ");
+
+	while (os_sem_wait(rtmp_output->status_semaphore) == 0) {
+		if (!rtmp_output->valid)
+			break;
+
+		rtmp_output->update_status();
+	}
+
+	return NULL;
+}
+
+void RtmpOutput::update_status()
+{
+	pthread_mutex_lock(&status_mutex);
+	int currrent_status = status;
+	pthread_mutex_unlock(&status_mutex);
+
+	if(currrent_status == RTMP_STREAM_DEACTIVE)
+		output_stop();
+}
+
 

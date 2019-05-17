@@ -58,9 +58,9 @@ void *VideoOutput::video_thread(void *param)
 
 bool VideoOutput::output_open()
 {
+    stop = false;
 	if (pthread_create(&thread, NULL, video_thread, this) != 0)
 		return false;
-
 	return true;
 }
 
@@ -108,6 +108,9 @@ bool VideoOutput::scale_video_output(video_input &input, video_data &data)
 void VideoOutput::UpdateCache(video_data &input_frame)
 {
 	if(input.callback == NULL)
+		return;
+
+	if(stop)
 		return;
 
 	pthread_mutex_lock(&data_mutex);

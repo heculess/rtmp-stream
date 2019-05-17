@@ -111,8 +111,6 @@ bool RtmpPush::StartStreaming(const char *stream_url, const char *stream_name)
         output_stream->set_video_encoder(h264Streaming);
         output_stream->set_audio_encoder(aacStreaming);
 
-        //output_stream->reconnect_retry_max = 20;
-        //output_stream->reconnect_retry_sec = 10;
         output_stream->path = streamUrl;
         output_stream->key = streamName;
 
@@ -129,14 +127,7 @@ void RtmpPush::StopStreaming()
             std::dynamic_pointer_cast<RtmpOutput>(streamOutput);
     if(!output_stream)
         return;
-	if (output_stream->output_active())
-        output_stream->output_stop();
-
-	if(audio)
-        audio->output_close();
-	if(video)
-        audio->output_close();
-
+    output_stream->output_stop();
 }
 
 RtmpPush::RtmpPush()
