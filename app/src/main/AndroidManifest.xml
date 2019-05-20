@@ -15,7 +15,7 @@
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
 
-        <service android:name=".RecordService" android:enabled="true" >
+        <service android:name=".RecordService" android:enabled="true" android:permission="android.permission.INTERNET" >
             <intent-filter android:priority="1000" >
                 <action android:name="com.rtmp.recordservice" />
             </intent-filter>

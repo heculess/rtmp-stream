@@ -83,19 +83,20 @@ void RtmpPush::video_output_open()
 void RtmpPush::SetupOutputs()
 {
     std::dynamic_pointer_cast<X264Encoder>(h264Streaming)->set_video(video);
-    std::dynamic_pointer_cast<aacEncoder>(aacStreaming)->set_audio(audio);
+    //std::dynamic_pointer_cast<aacEncoder>(aacStreaming)->set_audio(audio);
 }
 
 bool RtmpPush::StartStreaming(const char *stream_url, const char *stream_name)
 {
-    audio_output_open();
+    //audio_output_open();
     video_output_open();
 
     if(!h264Streaming)
         h264Streaming = std::make_shared<X264Encoder>();
+    /*
     if(!aacStreaming)
         aacStreaming = std::make_shared<aacEncoder>();
-
+*/
 	if (!Active())
 		SetupOutputs();
 
@@ -109,7 +110,7 @@ bool RtmpPush::StartStreaming(const char *stream_url, const char *stream_name)
             std::dynamic_pointer_cast<RtmpOutput>(streamOutput);
 	if(output_stream){
         output_stream->set_video_encoder(h264Streaming);
-        output_stream->set_audio_encoder(aacStreaming);
+        //output_stream->set_audio_encoder(aacStreaming);
 
         output_stream->path = streamUrl;
         output_stream->key = streamName;

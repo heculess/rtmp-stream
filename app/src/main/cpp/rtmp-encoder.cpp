@@ -380,9 +380,6 @@ static inline size_t get_audio_size(enum audio_format format,
 		   frames;
 }
 
-
-
-
 void audio_resampler_destroy(audio_resampler_t *rs)
 {
 	if (rs) {

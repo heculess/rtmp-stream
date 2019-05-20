@@ -3,10 +3,12 @@
 #include <sys/ioctl.h>
 
 #include "rtmp-stream.h"
-
+#include "util/dstr.h"
 #include "rtmp-output.h"
 #include "rtmp-flv-packager.h"
 # include "rtmp-video-output.h"
+
+#include "librtmp/log.h"
 
 RtmpStream::RtmpStream():
 sent_headers(false),
@@ -16,10 +18,6 @@ stream_active(false),
 disconnected(false),
 send_sem(NULL),
 stop_event(NULL),
-buffer_space_available_event(NULL),
-buffer_has_data_event(NULL),
-socket_available_event(NULL),
-send_thread_signaled_exit(NULL),
 start_dts_offset(0),
 drop_threshold_usec(0),
 pframe_drop_threshold_usec(0),
@@ -32,27 +30,16 @@ dropped_frames(0)
     id = "rtmp_output";
     encoded_video_codecs = "h264";
     encoded_audio_codecs = "aac";
-    flags =  OBS_OUTPUT_AV|OBS_OUTPUT_ENCODED|OBS_OUTPUT_MULTI_TRACK;
+    flags =  OBS_OUTPUT_VIDEO|OBS_OUTPUT_ENCODED|OBS_OUTPUT_MULTI_TRACK;
 
 	pthread_mutex_init_value(&packets_mutex);
 	RTMP_Init(&rtmp);
+	RTMP_LogSetCallback(log_rtmp);
+	RTMP_LogSetLevel(RTMP_LOGWARNING);
 
-	do{
-		if (pthread_mutex_init(&packets_mutex, NULL) != 0)
-			break;
-		if (os_event_init(&stop_event, OS_EVENT_TYPE_MANUAL) != 0)
-			break;
-		if (os_event_init(&buffer_space_available_event, OS_EVENT_TYPE_AUTO) != 0)
-			break;
-		if (os_event_init(&buffer_has_data_event, OS_EVENT_TYPE_AUTO) != 0)
-			break;
-		if (os_event_init(&socket_available_event, OS_EVENT_TYPE_AUTO) != 0)
-			break;
-		if (os_event_init(&send_thread_signaled_exit, OS_EVENT_TYPE_MANUAL) != 0)
-			break;
-		return;
-
-	}while(false);
+    if (pthread_mutex_init(&packets_mutex, NULL) != 0)
+        return;
+    os_event_init(&stop_event, OS_EVENT_TYPE_MANUAL);
 }
 
 RtmpStream::~RtmpStream()
@@ -60,11 +47,6 @@ RtmpStream::~RtmpStream()
     os_event_destroy(stop_event);
     os_sem_destroy(send_sem);
     pthread_mutex_destroy(&packets_mutex);
-
-    os_event_destroy(buffer_space_available_event);
-    os_event_destroy(buffer_has_data_event);
-    os_event_destroy(socket_available_event);
-    os_event_destroy(send_thread_signaled_exit);
 }
 
 void RtmpStream::stream_destroy()
@@ -109,9 +91,8 @@ void RtmpStream::stop()
 	if (is_stream_active()) {
 		os_event_signal(stop_event);
 		os_sem_post(send_sem);
-	} else {
+	} else
 		signal_stop(OBS_OUTPUT_SUCCESS);
-	}
 }
 
 void RtmpStream::encoded_packet(encoder_packet &packet)
@@ -194,7 +175,9 @@ void RtmpStream::free_packets()
 	while (packets.size) {
 		encoder_packet_info packet_info;
 		packets.pop_front(&packet_info, sizeof(encoder_packet_info));
+		encoder_packet auto_free(packet_info);
 	}
+	packets.free();
 	pthread_mutex_unlock(&packets_mutex);
 }
 
@@ -333,7 +316,7 @@ bool RtmpStream::add_video_packet(encoder_packet &packet)
 	}
 
 	last_dts_usec = packet.dts_usec;
-	LOGI("add_video_packet------------------- packet size : %d",packet.data.size());
+
 	return add_packet(packet);
 }
 
@@ -402,7 +385,6 @@ bool RtmpStream::reset_semaphore()
 
 bool RtmpStream::send_meta_data()
 {
-
 	std::shared_ptr<X264Encoder> vencoder =
 			std::dynamic_pointer_cast<X264Encoder>(get_video_encoder());
 	std::shared_ptr<aacEncoder> aencoder =
@@ -421,9 +403,11 @@ bool RtmpStream::send_meta_data()
 	if(video)
 		packager.setProperty("framerate",video->get_frame_rate());
 
-	packager.setProperty("audiocodecid",10);
-	packager.setProperty("audiodatarate",0);
-	packager.setProperty("audiosamplerate",(double)aencoder->get_sample_rate());
+	if(aencoder){
+        packager.setProperty("audiocodecid",10);
+        packager.setProperty("audiodatarate",0);
+        packager.setProperty("audiosamplerate",(double)aencoder->get_sample_rate());
+	}
 
 	std::vector<uint8_t> meta_data = packager.flv_meta_data(false);
     bool success = true;
@@ -441,7 +425,6 @@ int RtmpStream::try_connect()
 	if (path.empty())
 		return OBS_OUTPUT_BAD_PATH;
 
-	RTMP_Init(&rtmp);
 	if (!RTMP_SetupURL(&rtmp, path.c_str()))
 		return OBS_OUTPUT_BAD_PATH;
 
@@ -530,11 +513,10 @@ void * RtmpStream::send_thread_fun(void *data)
 				break;
 			}
 		}
-/*
-		stream->send_packet(packet, false, packet.track_idx);
-*/
+        LOGI("send_packet ------- pts : %lld --------- dts : %lld,----------- dts_usec : %lld ---------- sys_dts_usec :%lld ",
+            packet.pts,packet.dts,packet.dts_usec,packet.sys_dts_usec);
 		if (stream->send_packet(packet, false, packet.track_idx) < 0) {
-            LOGI("send_packet ---------------------------------------------------------------------- %d ", stream->rtmp.last_error_code);
+            LOGI("send_packet failed------- ");
 			os_atomic_set_bool(&stream->disconnected, true);
 			break;
 		}
@@ -645,11 +627,8 @@ int RtmpStream::send_packet(encoder_packet &packet, bool is_header, size_t idx)
 	int recv_size = 0;
 	int ret = ioctl(rtmp.m_sb.sb_socket, FIONREAD, &recv_size);
 	if (ret >= 0 && recv_size > 0) {
-		if (!discard_recv_data((size_t)recv_size)){
-            LOGI("discard_recv_data----------------------------------------!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+		if (!discard_recv_data((size_t)recv_size))
             return -1;
-		}
-
 	}
 
 	std::vector<uint8_t> send_data =
@@ -658,7 +637,6 @@ int RtmpStream::send_packet(encoder_packet &packet, bool is_header, size_t idx)
 	int data_size = send_data.size();
 	if(data_size > 0)
         ret = RTMP_Write(&rtmp, (char*)&send_data[0], data_size, (int)idx);
-    LOGI("send_packet------------------------------------------------------------ packet size : %d",data_size);
 	total_bytes_sent += data_size;
 	return ret;
 }
@@ -668,4 +646,13 @@ void RtmpStream::set_rtmp_str(AVal *val, const char *str)
 	bool valid  = (str && *str);
 	val->av_val = valid ? (char*)str       : NULL;
 	val->av_len = valid ? (int)strlen(str) : 0;
+}
+
+void RtmpStream::log_rtmp(int level, const char *format, va_list args)
+{
+	struct dstr encoder_name = {0};
+    dstr_vprintf(&encoder_name, format, args);
+	LOGI("%s",encoder_name.array);
+	dstr_free(&encoder_name);
+
 }

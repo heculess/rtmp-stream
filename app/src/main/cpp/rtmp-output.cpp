@@ -102,7 +102,7 @@ bool RtmpOutput::begin_data_capture()
 
 	total_frames   = 0;
 
-	convert_flags(flags, encoded, has_video, has_audio);
+	convert_flags(encoded, has_video, has_audio);
 
 	if (!can_begin_data_capture(encoded, has_video, has_audio))
 		return false;
@@ -141,7 +141,7 @@ bool RtmpOutput::can_begin_data_capture()
 	if (os_atomic_load_bool(&end_data_capture_thread_active))
 		pthread_join(end_data_capture_thread, NULL);
 
-	convert_flags(flags, encoded, has_video, has_audio);
+	convert_flags(encoded, has_video, has_audio);
 
 	return can_begin_data_capture(encoded, has_video, has_audio);
 }
@@ -174,7 +174,7 @@ bool RtmpOutput::initialize_encoders()
 
 	if (is_active()) return false;
 
-	convert_flags( flags, encoded, has_video, has_audio);
+	convert_flags(encoded, has_video, has_audio);
 
 	if (!encoded)
 		return false;
@@ -237,12 +237,11 @@ void RtmpOutput::signal_stop()
 	calldata_free(&params);
 }
 
-void RtmpOutput::convert_flags(uint32_t flags, bool &encoded, bool &has_video, bool &has_audio)
+void RtmpOutput::convert_flags(bool &encoded, bool &has_video, bool &has_audio)
 {
 	encoded = (flags & OBS_OUTPUT_ENCODED) != 0;
-
-	has_video   = (flags & OBS_OUTPUT_VIDEO)   != 0;
-	has_audio   = (flags & OBS_OUTPUT_AUDIO)   != 0;
+	has_video = (flags & OBS_OUTPUT_VIDEO) != 0;
+	has_audio = (flags & OBS_OUTPUT_AUDIO) != 0;
 }
 
 void RtmpOutput::hook_data_capture(bool has_video, bool has_audio)
@@ -304,7 +303,7 @@ void *RtmpOutput::end_data_capture_thread_fun(void *data)
 	bool encoded, has_video, has_audio;
 	RtmpOutput *output = (RtmpOutput *)data;
 
-	output->convert_flags(0, encoded, has_video, has_audio);
+	output->convert_flags(encoded, has_video, has_audio);
 
 	if (has_video)
 		output->video_encoder.lock()->stop(interleave_packets, output);
@@ -323,7 +322,6 @@ void *RtmpOutput::end_data_capture_thread_fun(void *data)
 void RtmpOutput::reset_packet_data()
 {
 	received_audio   = false;
-    LOGI("reset_packet_data-------------------- ");
 	received_video   = false;
 	highest_audio_ts = 0;
 	highest_video_ts = 0;
@@ -452,8 +450,13 @@ void RtmpOutput::output_stop()
         actual_stop(false);
     }
 
-	video.lock()->output_close();
-	audio.lock()->output_close();
+    std::shared_ptr<media_output> video_output = video.lock();
+    if(video_output)
+        video_output->output_close();
+
+    std::shared_ptr<media_output> audio_output = audio.lock();
+    if(audio_output)
+        audio_output->output_close();
 }
 
 bool RtmpOutput::is_data_active()
@@ -549,15 +552,18 @@ void RtmpOutput::destroy()
 void RtmpOutput::on_interleave_packets(encoder_packet &packet)
 {
 	encoder_packet out;
-	bool was_started;
 
 	if (!is_active())
 		return;
 
+    pthread_mutex_lock(&interleaved_mutex);
+
+    packet.create_instance(out);
+
+
+
 	if (packet.type == OBS_ENCODER_AUDIO)
 		packet.track_idx = 0;
-
-	pthread_mutex_lock(&interleaved_mutex);
 
 	if (!received_video &&
 		packet.type == OBS_ENCODER_VIDEO &&
@@ -568,32 +574,34 @@ void RtmpOutput::on_interleave_packets(encoder_packet &packet)
 		return;
 	}
 
-	was_started = received_audio && received_video;
-    packet.create_instance(out);
+    bool was_started = received_audio && received_video;
+    if (was_started)
+        apply_interleaved_packet_offset(out);
+    else
+        check_received(packet);
 
-	if (was_started)
-		apply_interleaved_packet_offset(out);
-	else
-		check_received(packet);
+    insert_interleaved_packet(out);
 
-	insert_interleaved_packet(out);
+    set_higher_ts(out);
 
-	set_higher_ts(out);
-	if (received_audio && received_video) {
-		LOGI("on_interleave_packets-------------------- was_started : %d ",was_started);
-		if (!was_started) {
-			if (prune_interleaved_packets()) {
-				if (initialize_interleaved_packets()) {
-					resort_interleaved_packets();
-					send_interleaved();
-				}
-			}
-			else
-				LOGI("prune_interleaved_packets-------------------- failed");
-		} else {
-			send_interleaved();
-		}
-	}
+    if(!need_sync_packet())
+        send_interleaved();
+    else{
+
+        if (received_audio && received_video) {
+            LOGI("on_interleave_packets-------------------- was_started : %d ",was_started);
+            if (!was_started) {
+                if (prune_interleaved_packets()) {
+                    if (initialize_interleaved_packets()) {
+                        resort_interleaved_packets();
+                        send_interleaved();
+                    }
+                }
+            } else {
+                send_interleaved();
+            }
+        }
+    }
 
 	pthread_mutex_unlock(&interleaved_mutex);
 }
@@ -748,12 +756,9 @@ int RtmpOutput::find_last_packet_type_idx(enum obs_encoder_type type)
 int RtmpOutput::find_first_packet_type_idx(obs_encoder_type type)
 {
 	for (size_t i = 0; i < interleaved_packets.size(); i++) {
-        LOGI("find_first_packet_type_idx %d --------------------interleaved_packets.type %d" ,type, interleaved_packets[i].type );
 		if (interleaved_packets[i].type == type)
 			return (int)i;
 	}
-
-    LOGI("find_first_packet_type_idx OBS_ENCODER_VIDEO -------------------- failed interleaved_packets.size %d" ,interleaved_packets.size() );
 	return -1;
 }
 
@@ -830,7 +835,6 @@ bool RtmpOutput::get_audio_and_video_packets(encoder_packet &video,
 										encoder_packet &audio)
 {
 	if (!find_first_packet_type(video,OBS_ENCODER_VIDEO)){
-        LOGI("find_first_packet_type -------------------- ");
 		received_video = false;
 		return false;
 	}
@@ -897,4 +901,14 @@ void RtmpOutput::update_status()
 		output_stop();
 }
 
+bool RtmpOutput::need_sync_packet()
+{
+	bool encoded, has_video, has_audio;
+	convert_flags(encoded, has_video, has_audio);
+
+	if(has_video && has_audio)
+		return true;
+
+	return false;
+}
 

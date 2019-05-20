@@ -199,7 +199,6 @@ video_output_info * VideoOutput::get_info()
 void VideoOutput::stop_raw_video(void (*callback)(void *param, struct video_data *frame),
 					void *param)
 {
-	//disconnect(callback, param);
 }
 
 bool VideoOutput::get_input_valid(void (*callback)(void *param, struct video_data *frame),

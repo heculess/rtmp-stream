@@ -111,7 +111,7 @@ private:
 
 	void signal_stop();
 
-	void convert_flags(uint32_t flags, bool &encoded, bool &has_video, bool &has_audio);
+	void convert_flags(bool &encoded, bool &has_video, bool &has_audio);
 	void hook_data_capture(bool has_video, bool has_audio);
 	void do_output_signal(int code_def);
 	bool audio_valid(bool encoded);
@@ -156,6 +156,8 @@ private:
 	void update_status();
 
 	bool is_active();
+
+	bool need_sync_packet();
 };
 
 #ifdef __cplusplus

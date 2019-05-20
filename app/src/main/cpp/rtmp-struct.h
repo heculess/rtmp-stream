@@ -149,7 +149,7 @@ class media_output
 {
 public:
     virtual ~media_output(){}
-    virtual bool output_open(){}
+    virtual bool output_open(){return false;}
     virtual void output_close(){}
     bool  initialized  = false;
 };

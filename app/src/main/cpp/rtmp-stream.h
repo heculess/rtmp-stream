@@ -101,6 +101,7 @@ protected:
 private:
 	static void * connect_thread_fun(void *data);
 	static void * send_thread_fun(void *data);
+	static void log_rtmp(int level, const char *format, va_list args);
 
 	void free_packets();
 	bool is_stream_active();
