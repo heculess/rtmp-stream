@@ -110,16 +110,14 @@ void media_encoder::remove_output()
 	pthread_mutex_unlock(&outputs_mutex);
 }
 
-void media_encoder::do_encode(struct encoder_frame *frame)
+void media_encoder::do_encode(encoder_frame &frame)
 {
 	encoder_packet pkt;
 	bool received = false;
-	bool success;
-
 	pkt.timebase_num = timebase_num;
 	pkt.timebase_den = timebase_den;
 
-	success = encode(frame, pkt, &received);
+	bool success = encode(frame, pkt, received);
 	send_off_encoder_packet(success, received, pkt);
 }
 

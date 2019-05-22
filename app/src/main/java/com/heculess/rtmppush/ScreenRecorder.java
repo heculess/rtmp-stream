@@ -23,7 +23,7 @@ public class ScreenRecorder extends Thread {
     private MediaProjection mMediaProjection;
 
     private static final int FRAME_RATE = 60;
-    private static final int IFRAME_INTERVAL = 2;
+    private static final int IFRAME_INTERVAL = 1;
     private static final int TIMEOUT_US = 10000;
 
     private MediaCodec mEncoder;

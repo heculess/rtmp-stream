@@ -19,10 +19,7 @@
 
 #include "rtmp-defs.h"
 #include "rtmp-struct.h"
-
 #include "rtmp-circle-buffer.h"
-#include "rtmp-ffmpeg-formats.h"
-#include "rtmp-ffmpeg-compat.h"
 
 /**
  * @file
@@ -81,15 +78,15 @@ public:
 
     bool initialize();
 
-    virtual bool encode(encoder_frame *frame,
-                        encoder_packet &packet, bool *received_packet) {return false;};
-    virtual bool get_extra_data(std::vector<uint8_t> &extra_data) {return false;};
+    virtual bool encode(encoder_frame &frame,
+                        encoder_packet &packet, bool &received_packet) {return false;};
+    virtual bool get_extra_data(std::vector<uint8_t> &data) {return false;};
 	virtual std::vector<uint8_t> get_encode_header() {return std::vector<uint8_t>();};
 
     void set_output(std::shared_ptr<rtmp_output_base> op);
     void remove_output();
 
-    void do_encode(struct encoder_frame *frame);
+    void do_encode(encoder_frame &frame);
 
     void start(void (*new_packet)(void *param, encoder_packet &packet),
                void *param);
@@ -98,7 +95,6 @@ public:
               void *param);
 
 private:
-    std::string profile_encoder_encode_name;
 
     bool initialize_internal();
     virtual  void on_initialize_internal(){}
@@ -140,9 +136,8 @@ public:
 	void set_scaled_size(uint32_t width, uint32_t height);
 
 	std::string get_name() override;
-	void destroy();
-	bool encode(struct encoder_frame *frame,
-				encoder_packet &packet, bool *received_packet) override;
+	bool encode(encoder_frame &frame,
+				encoder_packet &packet, bool &received_packet) override;
 	bool get_extra_data(std::vector<uint8_t> &extra_data) override;
 	std::vector<uint8_t> get_encode_header() override;
 	bool get_sei_data(std::vector<uint8_t> &sei_data);
@@ -154,10 +149,10 @@ public:
 	static std::vector<uint8_t> parse_header(const std::vector<uint8_t> &data);
 
 private:
-	void get_video_info(video_scale_info *info);
+	void get_video_info(video_scale_info &info);
 	void load_headers();
 	bool valid_format(video_format format);
-	void get_info(video_scale_info *info);
+	void get_info(video_scale_info &info);
 	void clear_data();
 	void add_connection() override ;
 	void on_remove_connection() override ;
@@ -191,16 +186,14 @@ public:
 	void set_audio(std::shared_ptr<media_output> &audio);
 
 	std::string get_name() override;
-	void *create();
-	void destroy();
-	bool encode(struct encoder_frame *frame,
-				encoder_packet &packet, bool *received_packet) override;
+	bool encode(encoder_frame &frame,
+				encoder_packet &packet, bool &received_packet) override;
 
-	bool get_extra_data(std::vector<uint8_t> &extra_data) override;
+	bool get_extra_data(std::vector<uint8_t> &data) override;
 	std::vector<uint8_t> get_encode_header() override;
 
 	void clear_audio();
-	bool buffer_audio(struct audio_data *data);
+	bool buffer_audio(media_data &data);
 	void send_audio_data();
 
 	uint32_t get_sample_rate();
@@ -209,51 +202,38 @@ public:
 	std::vector<uint8_t> audio_output_buffer;
 
 private:
-	void *enc_create(const char *type, const char *alt);
-	bool encode(encoder_packet &packet, bool *received_packet);
-
-	void get_audio_info(audio_convert_info *info);
+	void get_audio_info(audio_convert_info &info);
 
 	void on_actually_destroy() override;
 	void add_connection() override ;
 	void on_remove_connection() override ;
 
-	void get_info(struct audio_convert_info *info);
-	size_t get_frame_size();
-
-
 	void free_audio_buffers();
 	void intitialize_audio_encoder();
 	void reset_audio_buffers();
 
-	void push_back_audio(struct audio_data *data, size_t size, size_t offset_size);
+	void push_back_audio(media_data &data, size_t size, size_t offset_size);
 	size_t calc_offset_size(uint64_t v_start_ts, uint64_t a_start_ts);
 	void start_from_buffer(uint64_t v_start_ts);
 
 	void on_initialize_internal() override ;
 
-	void init_sizes();
-    bool initialize_codec();
+	void load_headers();
 
 	std::string type;
-
-	AVCodec *codec;
-	AVCodecContext *context;
-
-	std::vector<uint8_t *> samples;
-	AVFrame *aframe;
 	int64_t total_samples;
 
 	size_t audio_planes;
 	size_t audio_size;
 
-	int frame_size; /* pretty much always 1024 for AAC */
 	int frame_size_bytes;
 
 	uint32_t samplerate;
 
 	size_t blocksize;
 	size_t framesize;
+
+	std::vector<uint8_t> extra_data;
 };
 
 #ifdef __cplusplus

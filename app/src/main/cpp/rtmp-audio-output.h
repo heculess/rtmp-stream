@@ -30,19 +30,17 @@ public:
 	virtual ~AudioOutput();
 	uint32_t get_sample_rate();
 
+    void UpdateCache(media_data &input_frame);
+
 	audio_output_info   	   info;
 
 	size_t                     block_size;
 	size_t                     channels;
 
-	pthread_t                  thread;
-	os_event_t                 *stop_event;
-
-	audio_input_callback_t     input_cb;
 	size_t                     sample_rate;
-	pthread_mutex_t            input_mutex;
 	audio_mix           		mixe;
-	circlebuffer           		buffered_timestamps;
+
+	std::vector<uint8_t>        format;
 
 	bool connect(const struct audio_convert_info *conversion,
 			audio_output_callback_t callback, void *param);
@@ -50,18 +48,12 @@ public:
 
 	const audio_output_info* get_info();
 
-	bool output_open() override;
-	void output_close() override;
+protected:
+	void on_media_thread_create() override ;
+	void on_input_mutex(media_data &frame) override ;
 
 private:
-    static void *audio_thread(void *param);
     size_t get_audio_bytes_per_channel(enum audio_format format);
-    uint64_t audio_frames_to_ns(size_t sample_rate,
-                                             uint64_t frames);
-    void input_and_output(uint64_t audio_time, uint64_t prev_time);
-    void clamp_audio_output(size_t bytes);
-    void do_audio_output(uint64_t timestamp, uint32_t frames);
-
 	size_t audio_get_input_idx(audio_output_callback_t callback, void *param);
 };
 

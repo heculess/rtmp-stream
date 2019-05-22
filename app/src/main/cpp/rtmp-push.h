@@ -24,8 +24,6 @@ public:
     std::shared_ptr<media_output> video;
     std::shared_ptr<media_output> audio;
 
-    uint64_t                video_time;
-
     video_output_info       video_info;
     audio_output_info       audio_info;
 
@@ -40,7 +38,8 @@ public:
     bool StartStreaming(const char *stream_url, const char *stream_name);
     void StopStreaming();
 
-    void Push_video_data(video_data &input_frame);
+    void Push_video_data(media_data &input_frame);
+    void Push_audio_data(media_data &input_frame);
 
     inline bool Active()
     {

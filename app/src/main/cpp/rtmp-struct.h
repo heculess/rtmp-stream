@@ -105,33 +105,7 @@ struct video_scale_info {
     enum video_colorspace colorspace = VIDEO_CS_DEFAULT;
 };
 
-/*
-enum AVSampleFormat {
-    AV_SAMPLE_FMT_NONE = -1,
-    AV_SAMPLE_FMT_U8,          ///< unsigned 8 bits
-    AV_SAMPLE_FMT_S16,         ///< signed 16 bits
-    AV_SAMPLE_FMT_S32,         ///< signed 32 bits
-    AV_SAMPLE_FMT_FLT,         ///< float
-    AV_SAMPLE_FMT_DBL,         ///< double
-
-    AV_SAMPLE_FMT_U8P,         ///< unsigned 8 bits, planar
-    AV_SAMPLE_FMT_S16P,        ///< signed 16 bits, planar
-    AV_SAMPLE_FMT_S32P,        ///< signed 32 bits, planar
-    AV_SAMPLE_FMT_FLTP,        ///< float, planar
-    AV_SAMPLE_FMT_DBLP,        ///< double, planar
-    AV_SAMPLE_FMT_S64,         ///< signed 64 bits
-    AV_SAMPLE_FMT_S64P,        ///< signed 64 bits, planar
-
-    AV_SAMPLE_FMT_NB           ///< Number of sample formats. DO NOT USE if linking dynamically
-};
-*/
-
-struct audio_data {
-    std::vector<uint8_t> data;
-    uint64_t            timestamp = 0;
-};
-
-struct video_data {
+struct media_data {
     std::vector<uint8_t> data;
     uint64_t            timestamp = 0;
 };
@@ -148,10 +122,33 @@ struct audio_output_data {
 class media_output
 {
 public:
-    virtual ~media_output(){}
-    virtual bool output_open(){return false;}
-    virtual void output_close(){}
-    bool  initialized  = false;
+    media_output();
+    virtual ~media_output();
+    bool output_open();
+    void output_close();
+
+    void update_input_frame(media_data &input_frame);
+
+protected:
+    pthread_t thread;
+    os_sem_t *update_semaphore;
+    pthread_mutex_t data_mutex;
+    pthread_mutex_t input_mutex;
+    bool  stop;
+    bool  initialized;
+    media_data cache;
+
+    virtual void on_media_thread_create(){};
+
+    bool output_cur_frame();
+    void output_unlock_frame();
+
+    virtual void on_input_mutex(media_data &frame){}
+
+private:
+    static void *media_thread(void *param);
+
+    void media_thread_run();
 };
 
 struct encoder_packet_info
@@ -208,17 +205,13 @@ struct encoder_callback {
 };
 
 typedef void (*encoded_callback_t)(void *data, encoder_packet &packet);
-typedef bool (*audio_input_callback_t)(void *param,
-                                       uint64_t start_ts, uint64_t end_ts, uint64_t *new_ts,
-                                       uint32_t active_mixers, struct audio_output_data *mixes);
-typedef void (*audio_output_callback_t)(void *param, struct audio_data *data);
+typedef void (*audio_output_callback_t)(void *param, media_data &data);
 
 struct audio_output_info {
     audio_output_info():
     samples_per_sec(0),
     format(AUDIO_FORMAT_UNKNOWN),
-    speakers(SPEAKERS_UNKNOWN),
-    input_callback(NULL)
+    speakers(SPEAKERS_UNKNOWN)
     {}
 
     std::string         name;
@@ -226,8 +219,6 @@ struct audio_output_info {
     uint32_t            samples_per_sec;
     enum audio_format   format;
     enum speaker_layout speakers;
-
-    audio_input_callback_t input_callback;
 };
 
 struct encoder_frame {
@@ -262,7 +253,7 @@ struct video_output_info {
 
 struct video_input {
     video_scale_info   conversion;
-    void (*callback)(void *param, struct video_data *frame) = NULL;
+    void (*callback)(void *param, struct media_data *frame) = NULL;
     void *param = NULL;
     uint64_t last_output_timestamp = 0;
 };

@@ -14,7 +14,7 @@ Java_com_heculess_rtmppush_ScreenRecorder_pushVideoData(JNIEnv *env, jobject ins
     // TODO
 
     if(pusher){
-        video_data videodata;
+        media_data videodata;
         videodata.data.resize(oldsize,0);
         memcpy(&videodata.data[0],buffer,videodata.data.size());
         videodata.timestamp = tms;
@@ -100,4 +100,42 @@ Java_com_heculess_rtmppush_RecordService_init_1video_1info(JNIEnv *env, jobject 
     pusher->video_info.height = height;
     pusher->video_info.fps_num = fps;
 
+}
+
+extern "C"
+JNIEXPORT void JNICALL
+Java_com_heculess_rtmppush_AudioRecorder_pushAudioData(JNIEnv *env, jobject instance, jlong tms,
+                                                       jbyteArray data_) {
+    jbyte *data = env->GetByteArrayElements(data_, NULL);
+
+    if(pusher){
+        media_data audiodata;
+        audiodata.data.resize(env->GetArrayLength(data_),0);
+        memcpy(&audiodata.data[0],data,audiodata.data.size());
+        audiodata.timestamp = tms;
+
+        pusher->Push_audio_data(audiodata);
+    }
+
+    env->ReleaseByteArrayElements(data_, data, 0);
+}
+
+extern "C"
+JNIEXPORT void JNICALL
+Java_com_heculess_rtmppush_AudioRecorder_initAudioHeader(JNIEnv *env, jobject instance,
+                                                         jbyteArray csd0_) {
+    jbyte *csd0 = env->GetByteArrayElements(csd0_, NULL);
+    jsize  csdsize0 = env->GetArrayLength(csd0_);
+
+
+    if(pusher){
+
+        std::shared_ptr<AudioOutput> audio_output =
+                std::dynamic_pointer_cast<AudioOutput>(pusher->audio);
+
+        audio_output->format.resize(csdsize0,0);
+        memcpy(&audio_output->format[0], csd0, audio_output->format.size());
+    }
+
+    env->ReleaseByteArrayElements(csd0_, csd0, 0);
 }

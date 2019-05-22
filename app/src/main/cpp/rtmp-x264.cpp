@@ -22,7 +22,7 @@
 
 //#define ENABLE_VFR
 
-static void receive_video(void *param, struct video_data *frame);
+static void receive_video(void *param, struct media_data *frame);
 
 X264Encoder::X264Encoder():
 preferred_format(VIDEO_FORMAT_NONE),
@@ -60,12 +60,6 @@ void X264Encoder::set_video(std::shared_ptr<media_output> &video)
 	timebase_den = voi->fps_num;
 }
 
-void X264Encoder::destroy()
-{
-	clear_data();
-	delete this;
-}
-
 uint32_t X264Encoder::get_width()
 {
 	if (type != OBS_ENCODER_VIDEO) {
@@ -98,23 +92,19 @@ uint32_t X264Encoder::get_height()
 		   video->get_height();
 }
 
-bool X264Encoder::encode(struct encoder_frame *frame,
-				   encoder_packet &packet, bool *received_packet)
+bool X264Encoder::encode(encoder_frame &frame,
+				   encoder_packet &packet, bool &received_packet)
 {
-	if (!frame || !received_packet)
-		return false;
+	received_packet = (frame.frames != 0);
+	if (frame.frames){
 
-	*received_packet = (frame->frames != 0);
-	if (frame->frames){
+		int frameType = frame.data[4] & 0x1F;
 
-		int frameType = frame->data[4] & 0x1F;
-
-		packet.data		 = frame->data;
+		packet.data		     = frame.data;
 		packet.type          = OBS_ENCODER_VIDEO;
-		packet.pts           = frame->pts;
-		packet.dts           = frame->pts;
+		packet.pts           = frame.pts;
+		packet.dts           = frame.pts;
 		packet.keyframe      = frameType == OBS_NAL_SLICE_IDR;
-
 		LOGI("X264Encoder------------------- packet size : %d",packet.data.size());
 	}
 
@@ -146,18 +136,18 @@ bool X264Encoder::get_sei_data(std::vector<uint8_t> &sei_data)
 	return true;
 }
 
-void X264Encoder::get_info(struct video_scale_info *info)
+void X264Encoder::get_info(video_scale_info &info)
 {
-	enum video_format pref_format;
+	video_format pref_format;
 
 	pref_format = get_preferred_video_format();
 
 	if (!valid_format(pref_format)) {
-		pref_format = valid_format(info->format) ?
-					  info->format : VIDEO_FORMAT_NV12;
+		pref_format = valid_format(info.format) ?
+					  info.format : VIDEO_FORMAT_NV12;
 	}
 
-	info->format = pref_format;
+	info.format = pref_format;
 }
 
 void X264Encoder::load_headers()
@@ -218,7 +208,7 @@ void X264Encoder::set_scaled_size(uint32_t width, uint32_t height)
 void X264Encoder::add_connection()
 {
 	video_scale_info info;
-	get_video_info(&info);
+	get_video_info(info);
 
     std::shared_ptr<VideoOutput> vo =
             std::dynamic_pointer_cast<VideoOutput>(media.lock());
@@ -232,7 +222,7 @@ void X264Encoder::on_remove_connection()
 	vo->stop_raw_video(receive_video, this);
 }
 
-void X264Encoder::get_video_info(struct video_scale_info *info) {
+void X264Encoder::get_video_info(video_scale_info &info) {
 
     std::shared_ptr<VideoOutput> vo =
             std::dynamic_pointer_cast<VideoOutput>(media.lock());
@@ -241,24 +231,23 @@ void X264Encoder::get_video_info(struct video_scale_info *info) {
 
 	const video_output_info *voi = vo->get_info();
 
-	info->format     = voi->format;
-	info->colorspace = voi->colorspace;
-	info->range      = voi->range;
-	info->width      = get_width();
-	info->height     = get_height();
+	info.format     = voi->format;
+	info.colorspace = voi->colorspace;
+	info.range      = voi->range;
+	info.width      = get_width();
+	info.height     = get_height();
 
 	get_info(info);
 
-	if (info->width != voi->width || info->height != voi->height)
-		set_scaled_size(info->width, info->height);
+	if (info.width != voi->width || info.height != voi->height)
+		set_scaled_size(info.width, info.height);
 }
 
-static void receive_video(void *param, struct video_data *frame)
+static void receive_video(void *param, struct media_data *frame)
 {
 	X264Encoder *encoder = (X264Encoder *)param;
 	std::shared_ptr<media_encoder> pair = encoder->paired_encoder.lock();
-	struct encoder_frame  enc_frame;
-
+	encoder_frame  enc_frame;
 	if (!encoder->first_received && pair) {
 		if (!pair->first_received ||
 			pair->first_raw_ts > frame->timestamp) {
@@ -274,7 +263,7 @@ static void receive_video(void *param, struct video_data *frame)
 	enc_frame.frames = 1;
 	enc_frame.pts    = encoder->cur_pts;
 
-	encoder->do_encode(&enc_frame);
+	encoder->do_encode(enc_frame);
 
 	encoder->cur_pts += encoder->timebase_num;
 }

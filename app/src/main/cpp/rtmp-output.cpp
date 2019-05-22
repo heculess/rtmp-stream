@@ -560,8 +560,6 @@ void RtmpOutput::on_interleave_packets(encoder_packet &packet)
 
     packet.create_instance(out);
 
-
-
 	if (packet.type == OBS_ENCODER_AUDIO)
 		packet.track_idx = 0;
 
