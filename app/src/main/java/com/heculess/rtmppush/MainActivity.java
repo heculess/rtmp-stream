@@ -69,7 +69,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                 mVideoRecorder.start();
                 mButton.setText("Stop");
                 Toast.makeText(this, "Screen recorder is running...", Toast.LENGTH_SHORT).show();
-                //moveTaskToBack(true);
+                moveTaskToBack(true);
             }
         }
 

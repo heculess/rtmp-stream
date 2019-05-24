@@ -1,6 +1,7 @@
 
 #include "rtmp-struct.h"
 #include "util/platform.h"
+# include "rtmp-defs.h"
 
 media_output::media_output():
 update_semaphore(NULL),
@@ -49,7 +50,7 @@ void media_output::media_thread_run()
     while (os_sem_wait(update_semaphore) == 0) {
         if (stop)
             break;
-
+        LOGI("thread media_thread_run tid : %lu", pthread_self());
         while (!stop) {
             if(output_cur_frame())
                 break;

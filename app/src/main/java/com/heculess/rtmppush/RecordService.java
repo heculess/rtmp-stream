@@ -9,9 +9,6 @@ import android.view.WindowManager;
 
 public class RecordService extends Service {
 
-    static {
-        System.loadLibrary("native-lib");
-    }
     @Override
     public IBinder onBind(Intent intent) {
         return null;
@@ -26,23 +23,20 @@ public class RecordService extends Service {
         Point window_size = new Point();
         wm.getDefaultDisplay().getSize(window_size);
 
-        init_video_info(window_size.x,window_size.y+80,2,60);
+        RtmpClient.init_video_info(window_size.x,window_size.y+80,ScreenRecorder.FRAME_RATE);
     }
     @Override
     public void onDestroy() {
-        close(0);
+        RtmpClient.close(0);
         super.onDestroy();
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        open("rtmp://192.168.1.33/live","push");
+        RtmpClient.open("rtmp://192.168.1.33/live","push");
         return super.onStartCommand(intent, flags, startId);
     }
 
 
-    public native long open(String url,String name);
-    public native int close(long rtmpPointer);
 
-    public native void init_video_info(int width, int height, int color_space, int fps);
 }

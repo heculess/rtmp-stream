@@ -188,9 +188,9 @@ size_t RtmpStream::num_buffered_packets()
 
 void * RtmpStream::connect_thread_fun(void *data)
 {
-	struct RtmpStream *stream = (RtmpStream *)(data);
+	RtmpStream *stream = (RtmpStream *)(data);
 	int ret;
-
+    LOGI("thread connect_thread_fun tid : %lu", pthread_self());
 	os_set_thread_name("rtmp-stream: connect_thread");
 
 	if (!stream->init_connect()) {
@@ -513,8 +513,8 @@ void * RtmpStream::send_thread_fun(void *data)
 				break;
 			}
 		}
-        LOGI("send_packet ------- pts : %lld --------- dts : %lld,----------- dts_usec : %lld ---------- sys_dts_usec :%lld ",
-            packet.pts,packet.dts,packet.dts_usec,packet.sys_dts_usec);
+        LOGI("send_packet ------- pts : %lld --------- dts : %lld,----------- dts_usec : %lld ---------- sys_dts_usec :%lld  ----------- tid %lu",
+            packet.pts,packet.dts,packet.dts_usec,packet.sys_dts_usec, pthread_self());
 		if (stream->send_packet(packet, false, packet.track_idx) < 0) {
             LOGI("send_packet failed------- ");
 			os_atomic_set_bool(&stream->disconnected, true);

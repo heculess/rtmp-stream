@@ -31,7 +31,7 @@ public class AudioRecorder extends Thread {
                 default:
                     Log.d(TAG, "AudioSenderThread,MediaCode,eobIndex=" + eobIndex);
 
-                    if (eInfo.flags != MediaCodec.BUFFER_FLAG_CODEC_CONFIG && eInfo.size != 0 && eobIndex > 0) {
+                    if (eInfo.flags != MediaCodec.BUFFER_FLAG_CODEC_CONFIG && eInfo.size >= 0 && eobIndex >= 0) {
                         ByteBuffer realData = dstAudioEncoder.getOutputBuffer(eobIndex);
                         realData.position(eInfo.offset);
                         realData.limit(eInfo.offset + eInfo.size);
@@ -45,16 +45,15 @@ public class AudioRecorder extends Thread {
     }
 
     private void sendAudioSpecificConfig(MediaFormat format) {
-        initAudioHeader(format.getByteBuffer("csd-0").array());
+        RtmpClient.initAudioHeader(format.getByteBuffer("csd-0").array());
     }
 
     private void sendRealData(long tms, ByteBuffer realData){
         ByteBuffer pushData = ByteBuffer.allocate(realData.remaining());
         pushData.put(realData);
         pushData.flip();
-        pushAudioData(tms*1000,pushData.array());
+        RtmpClient.pushAudioData(tms*1000,pushData.array());
     }
 
-    public native void pushAudioData(long tms, byte[] data);
-    public native void initAudioHeader(byte[] csd0);
+
 }

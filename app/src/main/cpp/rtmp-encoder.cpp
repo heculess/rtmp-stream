@@ -362,12 +362,6 @@ static inline size_t get_audio_bytes_per_channel(enum audio_format format)
 	return 0;
 }
 
-static inline size_t get_audio_planes(enum audio_format format,
-									  enum speaker_layout speakers)
-{
-	return (is_audio_planar(format) ? get_audio_channels(speakers) : 1);
-}
-
 static inline size_t get_audio_size(enum audio_format format,
 									enum speaker_layout speakers, uint32_t frames)
 {
@@ -376,24 +370,6 @@ static inline size_t get_audio_size(enum audio_format format,
 	return (planar ? 1 : get_audio_channels(speakers)) *
 		   get_audio_bytes_per_channel(format) *
 		   frames;
-}
-
-void audio_resampler_destroy(audio_resampler_t *rs)
-{
-	if (rs) {
-		/*
-		if (rs->context)
-			swr_free(&rs->context);
-		if (rs->output_buffer[0])
-			av_freep(&rs->output_buffer[0]);
-*/
-		bfree(rs);
-	}
-}
-
-static inline void audio_input_free(struct audio_input *input)
-{
-	//audio_resampler_destroy(input->resampler);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////

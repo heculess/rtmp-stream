@@ -302,7 +302,7 @@ void *RtmpOutput::end_data_capture_thread_fun(void *data)
 {
 	bool encoded, has_video, has_audio;
 	RtmpOutput *output = (RtmpOutput *)data;
-
+	LOGI("thread end_data_capture_thread_fun tid : %lu", pthread_self());
 	output->convert_flags(encoded, has_video, has_audio);
 
 	if (has_video)
@@ -878,6 +878,8 @@ void *RtmpOutput::rtmp_status_update(void *param)
 	RtmpOutput *rtmp_output = (RtmpOutput *)param;
 
 	os_set_thread_name("rtmp-output: status monitor thread ");
+
+	LOGI("thread rtmp_status_update tid : %lu", pthread_self());
 
 	while (os_sem_wait(rtmp_output->status_semaphore) == 0) {
 		if (!rtmp_output->valid)

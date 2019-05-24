@@ -22,7 +22,7 @@ public class ScreenRecorder extends Thread {
     private int mDpi;
     private MediaProjection mMediaProjection;
 
-    private static final int FRAME_RATE = 60;
+    public static final int FRAME_RATE = 30;
     private static final int IFRAME_INTERVAL = 1;
     private static final int TIMEOUT_US = 10000;
 
@@ -74,9 +74,9 @@ public class ScreenRecorder extends Thread {
                 mWidth, mHeight);
         format.setInteger(MediaFormat.KEY_COLOR_FORMAT,
                 MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
-        format.setInteger(MediaFormat.KEY_BIT_RATE, 6000000);
+        format.setInteger(MediaFormat.KEY_BIT_RATE, mBitRate);
         format.setInteger(MediaFormat.KEY_BITRATE_MODE,
-                MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR);
+                MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_VBR);
         format.setInteger(MediaFormat.KEY_FRAME_RATE, FRAME_RATE);
         format.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, IFRAME_INTERVAL);
         mEncoder = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC);
@@ -97,8 +97,8 @@ public class ScreenRecorder extends Thread {
                     sendAVCDecoderHeader(mEncoder.getOutputFormat());
                     break;
                 default:
-                    Log.d(TAG, "VideoSenderThread,MediaCode,eobIndex=" + eobIndex);
-                    if (mBufferInfo.flags != MediaCodec.BUFFER_FLAG_CODEC_CONFIG && mBufferInfo.size != 0 && eobIndex > 0) {
+                    Log.i(TAG, "VideoSenderThread,MediaCode,eobIndex=" + eobIndex);
+                    if (mBufferInfo.flags != MediaCodec.BUFFER_FLAG_CODEC_CONFIG && mBufferInfo.size >= 0 && eobIndex>=0) {
                         ByteBuffer realData = mEncoder.getOutputBuffer(eobIndex);
                         sendRealData(mBufferInfo.presentationTimeUs, realData);
                     }
@@ -127,16 +127,15 @@ public class ScreenRecorder extends Thread {
         ByteBuffer SPSByteBuff = format.getByteBuffer("csd-0");
         ByteBuffer PPSByteBuff = format.getByteBuffer("csd-1");
 
-        initVideoHeader(SPSByteBuff.array(), PPSByteBuff.array());
+        RtmpClient.initVideoHeader(SPSByteBuff.array(), PPSByteBuff.array());
     }
 
     private void sendRealData(long tms, ByteBuffer realData){
         ByteBuffer pushData = ByteBuffer.allocate(realData.remaining());
         pushData.put(realData);
         pushData.flip();
-        pushVideoData(tms*1000,pushData.array());
+        RtmpClient.pushVideoData(tms*1000,pushData.array());
     }
 
-    public native void pushVideoData(long tms, byte[] data);
-    public native void initVideoHeader(byte[] csd0,byte[] csd1);
+
 }
